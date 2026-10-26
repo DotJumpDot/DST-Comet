@@ -43,6 +43,10 @@ export type Theme = {
   accent: string
   toolNameMutate: string
   toolNameExec: string
+  /** Search tools (grep/glob/find): violet, distinct from Read's cyan. */
+  toolNameSearch: string
+  /** MCP tools: rose/pink, distinct from every built-in tool family. */
+  toolNameMcp: string
   /** Primary brand/focus shimmer color. */
   accentShimmer: string
   /** Working activity indicator color. */
@@ -341,7 +345,9 @@ const darkTheme: Theme = {
   bashBorder: rgb('#D194AE'), // Mist rose
   accent: rgb('#7DA1DE'), // Accent Soft — mist brand blue
   toolNameMutate: rgb('#E5C07B'), // soft gold — Edit/Write (warm accent)
-  toolNameExec: rgb('#56B6C2'), // mist cyan — Bash/exec tools
+  toolNameExec: rgb('#A3BE8C'), // sage green — Bash/exec tools
+  toolNameSearch: rgb('#C4A7E7'), // lavender — Grep/Glob/Search
+  toolNameMcp: rgb('#E8A2B8'), // mist rose — MCP/generic tools
   accentShimmer: rgb('#ABC2EC'), // Border Blue for shimmer effect
   activity: rgb('#7DA1DE'),
   activityShimmer: rgb('#ABC2EC'),
@@ -515,7 +521,9 @@ const claudeDarkTheme: Theme = {
   toolDotWeb: rgb('#D77757'),
   toolDotTask: rgb('#D96B5F'),
   toolNameMutate: rgb('#DFA25B'),
-  toolNameExec: rgb('#78A6C8'),
+  toolNameExec: rgb('#A7C080'),
+  toolNameSearch: rgb('#C8B6E2'),
+  toolNameMcp: rgb('#E5A5AE'),
   // ── 语法：注释/运算符黑白灰，结构词才彩色 ──
   syntaxKeyword: rgb('#78A6C8'),
   syntaxString: rgb('#81966A'),
@@ -556,7 +564,9 @@ const lightTheme: Theme = {
   bashBorder: rgb('#C07A93'), // Muted rose (from surface-alt pink-mist)
   accent: rgb('#3F6CC4'), // Primary Blue — brand
   toolNameMutate: rgb('#8A6A00'), // deep gold - Edit/Write (warm accent)
-  toolNameExec: rgb('#0F7A8A'), // deep cyan - Bash/exec tools
+  toolNameExec: rgb('#3F7E5A'), // deep green - Bash/exec tools
+  toolNameSearch: rgb('#7C3AED'), // deep violet - Grep/Glob/Search
+  toolNameMcp: rgb('#BE185D'), // deep rose - MCP/generic tools
   accentShimmer: rgb('#5E88CC'), // Accent Blue for shimmer effect
   activity: rgb('#3F6CC4'),
   activityShimmer: rgb('#5E88CC'),
@@ -705,7 +715,7 @@ const claudePaperTheme: Theme = {
   toolDotWeb: rgb('#C96442'),
   toolDotTask: rgb('#BB5148'),
   toolNameMutate: rgb('#B97929'),
-  toolNameExec: rgb('#527FA5'),
+  toolNameExec: rgb('#4E7A4E'),
   // ── 语法：注释/运算符灰阶，结构词彩色 ──
   syntaxKeyword: rgb('#527FA5'),
   syntaxString: rgb('#687D51'),
@@ -799,7 +809,7 @@ const codexLavenderTheme: Theme = {
   toolDotWeb: rgb('#8F9BFF'),
   toolDotTask: rgb('#D9727C'),
   toolNameMutate: rgb('#D8AE62'),
-  toolNameExec: rgb('#8F9BFF'),
+  toolNameExec: rgb('#A3BE8C'),
   // ── 语法：注释/运算符黑白灰，结构词才彩色 ──
   syntaxKeyword: rgb('#8F9BFF'),
   syntaxString: rgb('#7FB38A'),
@@ -890,7 +900,7 @@ const codexPaperTheme: Theme = {
   toolDotWeb: rgb('#6B5CC8'),
   toolDotTask: rgb('#C45A66'),
   toolNameMutate: rgb('#AF7B2E'),
-  toolNameExec: rgb('#6F7EEB'),
+  toolNameExec: rgb('#4E7A4E'),
   // ── 语法：注释/运算符灰阶，结构词彩色 ──
   syntaxKeyword: rgb('#6F7EEB'),
   syntaxString: rgb('#5F8B69'),
@@ -934,7 +944,9 @@ const darkAnsiTheme: Theme = {
   bashBorder: 'ansi:magentaBright',
   accent: 'ansi:blueBright',
   toolNameMutate: 'ansi:yellowBright',
-  toolNameExec: 'ansi:cyanBright',
+  toolNameExec: 'ansi:greenBright',
+  toolNameSearch: 'ansi:magentaBright',
+  toolNameMcp: 'ansi:redBright',
   accentShimmer: 'ansi:cyanBright',
   activity: 'ansi:blueBright',
   activityShimmer: 'ansi:cyanBright',
@@ -1051,7 +1063,9 @@ const pinkNightTheme: Theme = {
   bashBorder: rgb('#E08CA8'),
   accent: rgb('#F27BA6'),
   toolNameMutate: rgb('#E5C07B'),
-  toolNameExec: rgb('#72C4CF'),
+  toolNameExec: rgb('#8FBF9F'),
+  toolNameSearch: rgb('#C4A7E7'),
+  toolNameMcp: rgb('#F27BA6'),
   accentShimmer: rgb('#F8AFC6'),
   activity: rgb('#F27BA6'),
   activityShimmer: rgb('#F8AFC6'),
@@ -1150,7 +1164,9 @@ const pinkDayTheme: Theme = {
   bashBorder: rgb('#C05C7E'),
   accent: rgb('#DE6E96'),
   toolNameMutate: rgb('#8A6A00'),
-  toolNameExec: rgb('#0E7A8A'),
+  toolNameExec: rgb('#3F7E5A'),
+  toolNameSearch: rgb('#7C3AED'),
+  toolNameMcp: rgb('#BE185D'),
   accentShimmer: rgb('#F2A0BF'),
   activity: rgb('#E879A0'),
   activityShimmer: rgb('#F2A0BF'),

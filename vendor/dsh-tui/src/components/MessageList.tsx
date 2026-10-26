@@ -12,6 +12,7 @@ import { Divider } from './design-system/Divider.js'
 import { UserPromptMessage } from './messages/UserPromptMessage.js'
 import { TeamMessageBubble } from './messages/TeamMessageBubble.js'
 import { AssistantTextLeafRow, ThinkingLeafRow, ToolLeafRow } from './messages/TranscriptLeaves.js'
+import { FinalSummaryRow } from './messages/FinalSummaryRow.js'
 import { liveOutputMaxLines, liveOutputRows } from './messages/liveOutputLines.js'
 import { SubagentMessage } from './Chat/SubagentMessage.js'
 import { JobCard } from './Chat/JobCard.js'
@@ -102,6 +103,60 @@ function isTurnRow(row: ChatRow): boolean {
  *  undefined for every other row, which renders as the human's prompt. */
 function teamSenderOf(row: ChatRow): string | undefined {
   return row.label === 'team-message' ? row.sender ?? '' : undefined
+}
+
+/**
+ * DST Comet: lift a turn's settled final answer above that turn's tool cards.
+ *
+ * The session log stays the source of truth and its event order is untouched;
+ * this is a display-only reorder of the visible window (like the job-group
+ * fold decoration). A turn qualifies when it has at least one tool card, the
+ * answer is the last assistant text of the turn, it comes after the last tool
+ * call, it is settled, and no tool of the turn is still running. The newest
+ * turn also waits for the agent to go idle (`agentRunning`), so a mid-turn
+ * assistant step does not flicker up and back down when the model calls
+ * another tool.
+ *
+ * The moved row is a shallow copy carrying `finalSummary: true` — the
+ * projection's rows may be frozen, so never write the flag onto the shared
+ * row.
+ */
+function promoteFinalSummaries(rows: ChatRow[], agentRunning: boolean): ChatRow[] {
+  let moved: ChatRow[] | null = null
+  for (let start = 0; start < rows.length; start++) {
+    if (!isTurnRow(rows[start]!)) continue
+    let end = start + 1
+    while (end < rows.length && !isTurnRow(rows[end]!)) end++
+    const lastTurn = end >= rows.length
+    if (lastTurn && agentRunning) {
+      start = end - 1
+      continue
+    }
+    let lastTool = -1
+    let lastAssistant = -1
+    let runningTool = false
+    for (let i = start + 1; i < end; i++) {
+      const row = rows[i]!
+      if (row.kind === 'tool') {
+        lastTool = i
+        if (row.tool?.status === 'running') runningTool = true
+      }
+      if (row.kind === 'assistant') lastAssistant = i
+    }
+    const final = lastAssistant === -1 ? undefined : rows[lastAssistant]
+    if (
+      !runningTool && lastTool >= 0 && final !== undefined && lastAssistant > lastTool &&
+      final.streaming !== true && final.finalSummary !== true &&
+      assistantDisplayText(final).trim() !== ''
+    ) {
+      moved ??= rows.slice()
+      const summary: ChatRow = { ...final, finalSummary: true }
+      moved.splice(lastAssistant, 1)
+      moved.splice(start + 1, 0, summary)
+    }
+    start = end - 1
+  }
+  return moved ?? rows
 }
 
 /** Keep a settled text-only reply visible when narration is its whole body. */
@@ -252,8 +307,9 @@ function signatureParts(
     case 'assistant':
       // Streaming vs settled swaps renderers; Ctrl+O/per-row expand adds the
       // metadata row (model only renders expanded — keeps an idle /model
-      // switch from touching settled rows).
-      signatureScratch.push(row.streaming === true, expanded, expandedRows.has(row.id), expanded ? model : '')
+      // switch from touching settled rows). The final-summary lift swaps the
+      // row's whole shape too (one line vs markdown body).
+      signatureScratch.push(row.streaming === true, expanded, expandedRows.has(row.id), expanded ? model : '', row.finalSummary === true)
       break
     case 'reasoning':
       // thinkingFold (preview vs full), its per-row live override, and the
@@ -397,6 +453,7 @@ export function MessageList({
   thinkingVisible = true,
   historyPaintEnabled = true,
   fullscreen = false,
+  agentRunning = false,
   registerRowRef,
   scrollHandle,
   forceMountRowId,
@@ -473,6 +530,12 @@ export function MessageList({
   historyPaintEnabled?: boolean
   /** Fullscreen layout: running tool cards show more live output lines. */
   fullscreen?: boolean
+  /** The bound agent is still working (a turn is in flight). The newest
+   *  turn's final-summary lift waits for this to clear, so a mid-turn
+   *  assistant step is not folded up and then pulled back down when the
+   *  model calls another tool. Earlier turns are already settled and lift
+   *  regardless. */
+  agentRunning?: boolean
   /** Transcript search: register each row's DOM element for scroll-to-match. */
   registerRowRef?: (rowId: number, el: DOMElement | null) => void
   /** Scroll viewport the list virtualizes against. */
@@ -560,6 +623,12 @@ export function MessageList({
     /** Job-status/toggle fingerprint (see below): job cards settle IN PLACE,
      *  and a settling run changes how — and whether — its members render. */
     jobsSig: number
+    /** Tool-status fingerprint: a tool settling IN PLACE (running → ok) can
+     *  promote a turn's final-summary row without changing the row array. */
+    toolSig: number
+    /** Agent running state: clearing it can promote the newest turn's
+     *  final-summary row without any row change. */
+    agentRunning: boolean
     /** Turn-usage row toggle: flipping it adds/removes turn-summary rows
      *  from the visible window without touching the row array. */
     turnRowOn: boolean
@@ -586,10 +655,16 @@ export function MessageList({
   // and a folded run REMOVES its members from the visible window. One
   // allocation-free pass over the row list (only job rows feed the hash).
   let jobsSig = (expanded ? 1 : 0) * 7 + (jobGroupFold === 'always' ? 1 : jobGroupFold === 'never' ? 2 : 3)
+  let toolSig = 0
   for (let i = 0; i < rows.length; i++) {
     const row = rows[i]!
-    if (row.kind !== 'job' || row.job === undefined) continue
-    jobsSig = (jobsSig * 33 + row.id + jobStatusCode(row.job.status) + (expandedRows.has(row.id) ? 7 : 0)) | 0
+    if (row.kind === 'job' && row.job !== undefined) {
+      jobsSig = (jobsSig * 33 + row.id + jobStatusCode(row.job.status) + (expandedRows.has(row.id) ? 7 : 0)) | 0
+    }
+    if (row.kind === 'tool' && row.tool !== undefined) {
+      const status = row.tool.status === 'running' ? 1 : row.tool.status === 'error' ? 2 : 3
+      toolSig = (toolSig * 33 + row.id + status) | 0
+    }
   }
   if (
     visibleCache === null ||
@@ -598,6 +673,8 @@ export function MessageList({
     visibleCache.showAll !== (showAll || hiddenCount <= 0) ||
     visibleCache.thinkingVisible !== thinkingVisible ||
     visibleCache.jobsSig !== jobsSig ||
+    visibleCache.toolSig !== toolSig ||
+    visibleCache.agentRunning !== agentRunning ||
     visibleCache.turnRowOn !== turnUsageRow ||
     !streamBitsSame
   ) {
@@ -650,6 +727,11 @@ export function MessageList({
     // row out of the window entirely, so no cached height or mounted node
     // survives the toggle. The ledger data itself is collected regardless.
     if (!turnUsageRow) out = out.filter(row => row.kind !== 'turn-summary')
+    // --- final-summary lift -------------------------------------------------
+    // A finish-with-tools answer is folded to the top of its turn and shown as
+    // one line (expanded by click / Ctrl+O). Presentation only: the session
+    // log and the row objects keep their original order and events.
+    out = promoteFinalSummaries(out, agentRunning)
     // --- consecutive-job groups ------------------------------------------
     // A batch of run_in_background calls lands as N adjacent job cards (the
     // projection pushes the whole roster in one sync) and EVERY card pays
@@ -770,6 +852,8 @@ export function MessageList({
       margins,
       streamBits,
       jobsSig,
+      toolSig,
+      agentRunning,
       turnRowOn: turnUsageRow,
     }
     visGenRef.current++
@@ -1573,6 +1657,7 @@ export function MessageList({
               key={row.id}
               rowId={row.id}
               kind={row.kind}
+              finalSummary={row.finalSummary === true}
               text={displayText}
               interruptBackend={row.interruptBackend}
               images={row.images}
@@ -1653,6 +1738,8 @@ export function MessageList({
 type MemoRowProps = {
   rowId: number
   kind: ChatRow['kind']
+  /** DST Comet: this assistant row is rendered as its turn's final summary. */
+  finalSummary: boolean
   text: string
   interruptBackend?: string
   images: readonly TranscriptImage[] | undefined
@@ -1766,6 +1853,7 @@ function ClickableDivider({ title, onClick }: { title: string; onClick?: () => v
 function TranscriptRow({
   rowId,
   kind,
+  finalSummary,
   text,
   interruptBackend,
   images,
@@ -1920,6 +2008,27 @@ function TranscriptRow({
         </Box>
       )
     case 'assistant':
+      // DST Comet final-summary lift: the settled answer of a tool-using turn
+      // renders as one collapsible line above the workflow. `expanded` is
+      // Ctrl+O, `isExpanded` is this row's click state — either opens it.
+      if (finalSummary) {
+        return (
+          <Box
+            width="100%"
+            flexDirection="column"
+            backgroundColor={background}
+            marginTop={marginTopOnTurn ? 1 : 0}
+            ref={ref}
+          >
+            <FinalSummaryRow
+              text={text}
+              expanded={expanded || isExpanded}
+              onToggle={() => { onToggleRow(rowId) }}
+              isSelected={isSelected}
+            />
+          </Box>
+        )
+      }
       return streaming ? (
         <Box
           alignItems="flex-start"

@@ -133,6 +133,12 @@ export interface ChatRow {
    *  (rows may arrive frozen from the session projection), never by the
    *  projection and never on the shared row objects. */
   jobGroup?: JobGroupRow
+  /** DST Comet display decoration: this settled assistant row is its turn's
+   *  final answer and is rendered as a one-line, expandable summary ABOVE
+   *  the turn's tool workflow. Written only onto shallow copies in the
+   *  transcript's row pre-pass (same rule as `jobGroup`), never by the
+   *  projection. */
+  finalSummary?: boolean
   /** Event wall-clock time (transcript-mode metadata, assistant rows). */
   time?: number
   /** Present on `reasoning` rows once settled: thinking wall-clock duration. */

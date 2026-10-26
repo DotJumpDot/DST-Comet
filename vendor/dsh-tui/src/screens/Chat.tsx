@@ -7117,6 +7117,7 @@ export function Chat({
           foldTerminalCommand={channel.foldTerminalCommand}
           oneLineToolCards={channel.oneLineToolCards}
           turnUsageRow={channel.turnUsageRow}
+          agentRunning={channel.status === 'running'}
           smoothStreaming={channel.smoothStreaming}
           activityFrames={channel.activityFrames}
           showAll={showAllMessages}

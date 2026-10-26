@@ -39,7 +39,9 @@ const { applySidePanelOpen, applySidePanelRatio } = prefs
 const { settled } = termTest
 
 const COLS = 120
-const ROWS = 22
+// 26 rows: the 4-row DST Comet brand header plus five compact agent cards
+// (the old 22-row fixture predates the header and cannot hold the fifth).
+const ROWS = 26
 
 let failed = 0
 function check(name: string, ok: boolean, extra = ''): void {
@@ -265,6 +267,10 @@ try {
   check('keys: Enter opens the focused card detail (usePanelInput dispatch)', has('1/3') && has('Subagent: AAA1'),
     (lines().find(l => l.includes('/3')) ?? '').trim())
   check('detail: the dashboard list is replaced by the paged scene', !has('AAA2'))
+  check('detail narrow: short tabs fit on one row', has('Sum') && has('Out') && has('Tools'),
+    lines().find(l => l.includes('Sum')) ?? '')
+  check('detail narrow: footer hint stays one line', has('←/→ page') && has('Esc'),
+    lines().find(l => l.includes('←/→')) ?? '')
 
   // --- 5. ←/→ page the detail --------------------------------------------
   await writeKey('\x1b[C')
@@ -359,6 +365,21 @@ try {
   await settled(() => has('No subagents in the current session'))
   check('route: a missing subagent falls back to the dashboard (empty state)',
     has('No subagents in the current session') && !has('/3'))
+
+  // --- 12. DST Comet: finished agents fold away; `c` brings them back -----
+  const clearStore = await import('../src/components/sidePanel/agentsPanelClear.js')
+  clearStore.scopeAgentsCleared('agents-panel-clear-probe')
+  setSubagents([A1, A2])
+  await settled(() => has('AAA1') && has('AAA2'))
+  clearStore.clearAgents(['agent-done-2'])
+  await settled(() => !has('AAA2') && has('AAA1'))
+  check('clear: a finished agent folds out of the roster', !has('AAA2') && has('AAA1'))
+  check('clear: footer keeps the count and the show hint', has('1 finished') && has('c show'))
+  clearStore.toggleAgentsClearedVisible()
+  await settled(() => has('AAA2'))
+  check('clear: show brings the folded agent back', has('AAA2') && has('c hide'))
+  clearStore.toggleAgentsClearedVisible()
+  clearStore.scopeAgentsCleared('__probe_done__')
 } finally {
   // 失败时把最后一帧打给 stderr：CI 日志里能直接看到断言看到的那一屏。
   if (failed > 0) dumpScreen()

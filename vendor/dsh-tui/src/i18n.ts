@@ -1713,6 +1713,11 @@ const dict = {
   'thinking-label': { zh: '思考', en: 'Thinking' },
   // DST Comet: the folded thinking header carries the reasoning volume.
   'thinking-lines': { zh: '{{n}} 行', en: '{{n}} lines' },
+  // DST Comet: the settled assistant answer of a tool-using turn is lifted to
+  // the top of the workflow as a one-line, expandable summary.
+  'final-summary-title': { zh: '最终总结', en: 'Final summary' },
+  'final-summary-lines': { zh: '{{n}} 行', en: '{{n}} lines' },
+  'final-summary-lines-short': { zh: '行', en: 'lines' },
   // Thinking reported only as an estimated token count (no thinking text).
   'thinking-tokens-live': { zh: '思考中 · ~{{n}} tokens', en: 'Thinking · ~{{n}} tokens' },
   'thinking-tokens-done': { zh: '已思考 · ~{{n}} tokens', en: 'Thought · ~{{n}} tokens' },
@@ -1832,6 +1837,13 @@ const dict = {
   'subagent-last-tool': { zh: '最近工具', en: 'last tool' },
   'subagent-tools-kept': { zh: '显示 {{kept}} 条记录（共 {{reported}} 次工具调用，其余未保留）', en: '{{kept}} records shown ({{reported}} tool uses in total; the rest were not kept)' },
   'subagent-tab-transcript': { zh: '转录', en: 'Transcript' },
+  // Narrow panel: counts drop and the four tabs use short labels so they
+  // never wrap character-by-character in a 30–50 col sidebar.
+  'subagent-tab-summary-short': { zh: '摘要', en: 'Sum' },
+  'subagent-tab-output-short': { zh: '输出', en: 'Out' },
+  'subagent-tab-transcript-short': { zh: '记录', en: 'Log' },
+  'subagent-tools-short': { zh: '工具', en: 'Tools' },
+  'subagent-tab-messages-short': { zh: '消息', en: 'Msg' },
   'subagent-transcript-loading': { zh: '正在读取子代理转录…', en: 'Reading the subagent transcript…' },
   'subagent-transcript-unavailable': { zh: '子代理转录暂时读不到', en: 'Subagent transcript unavailable' },
   'subagent-transcript-empty': { zh: '子代理转录为空', en: 'The subagent transcript is empty' },
@@ -1858,6 +1870,11 @@ const dict = {
   'team-status-active': { zh: '活跃', en: 'active' },
   'team-status-failed': { zh: '失败', en: 'failed' },
   'team-members-title': { zh: '成员', en: 'Members' },
+  // DST Comet: the Agents tab clears finished agents once the work is done;
+  // one quiet line keeps the count and lets the user bring them back.
+  'agents-cleared-count': { zh: '{{count}} 个已完成', en: '{{count}} finished' },
+  'agents-cleared-show': { zh: 'c 显示', en: 'c show' },
+  'agents-cleared-hide': { zh: 'c 收起', en: 'c hide' },
   'team-lead-row': { zh: 'lead · 当前会话', en: 'lead · this session' },
   'team-lead-row-peer': { zh: 'lead', en: 'lead' },
   'team-self-mark': { zh: '当前会话', en: 'this session' },

@@ -1,13 +1,14 @@
 /**
  * Side-panel mouse regression: the bar is the one place where a click
- * switches WHAT the whole right column shows, so it must be clickable, must
- * say so on hover, and the ⤢ fullscreen affordance must appear only for
- * panels that actually have a fullscreen form (capabilities.fullscreen).
+ * switches WHAT the whole right column shows, so it must be clickable and
+ * the ⤢ fullscreen affordance must appear only for panels that actually have
+ * a fullscreen form (capabilities.fullscreen).
  *
- * Locked behavior:
- *  a. the active title stays centered while inactive panels show their icons;
- *  b. icon hover reveals the panel title, and clicking its hit area selects it;
- *  c. the edge arrows wrap through the panel order and ⤢ appears by capability;
+ * DST Comet navigator contract (was a fan of every panel's icon):
+ *  a. only the active panel's icon + title sits between the two arrows;
+ *  b. the arrows cycle the panel order and carry a badge tone in their
+ *     direction when a hidden panel has an alert;
+ *  c. the arrows wrap, and ⤢ appears by capability;
  *  d. ⤢ calls the host with the active panel id;
  *  e. clicking the chat column returns focus to chat.
  *
@@ -18,7 +19,7 @@ export {}
 process.env.FORCE_COLOR = '3'
 process.env.DSH_TUI_LANG = 'en'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, prefs, { TooltipLayer }, termTest] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, prefs, { TooltipLayer }, termTest, { sidebarBrandRows }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -29,6 +30,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLay
   import('../src/tuiDisplayPrefs.js'),
   import('../src/components/Tooltip.js'),
   import('./lib/term-test.mjs'),
+  import('../src/components/sidePanel/sidebarBrand.js'),
 ])
 const { render, AlternateScreen, Box, Text, useInput } = ui
 const { applySidePanelOpen, applySidePanelPanels, applySidePanelRatio } = prefs
@@ -135,13 +137,7 @@ const findText = (s: string): { col: number; row: number } | null => {
   }
   return null
 }
-const boldAt = (col: number, row: number): boolean => {
-  const buf = term.buffer.active
-  return buf.getLine(buf.baseY + row)?.getCell(col)?.isBold() ?? false
-}
-// SGR 1-indexed。无按键移动 = 35（32 是「按住左键拖动」，别混）；
-// press(0)/release(0) = 点击。
-const motion = (c: number, r: number) => stdin.write('\x1b[<35;' + (c + 1) + ';' + (r + 1) + 'M')
+// SGR 1-indexed。press(0)/release(0) = 点击。
 const press = (c: number, r: number) => stdin.write('\x1b[<0;' + (c + 1) + ';' + (r + 1) + 'M')
 const release = (c: number, r: number) => stdin.write('\x1b[<0;' + (c + 1) + ';' + (r + 1) + 'm')
 const click = (c: number, r: number) => { press(c, r); release(c, r) }
@@ -167,30 +163,26 @@ const app = await render(
 )
 
 try {
+  const barRow = sidebarBrandRows(ROWS)
   check('a boot: active title is centered on Todo', await settled(() => has('Todo'), { timeoutMs: 4000 }))
-  check('a boot: inactive panels show their own icons', (lines()[0]?.match(/[▸◆]/g) ?? []).length === 2, lines()[0]?.trim())
+  const bootBar = lines()[barRow] ?? ''
+  check('a boot: only the active panel icon renders', bootBar.includes('≡ Todo') && !bootBar.includes('◆') && !bootBar.includes('▸'), bootBar.trim())
+  check('a boot: the bar carries both nav arrows', bootBar.includes('◀') && bootBar.includes('▶'), bootBar.trim())
   check('a boot: no ⤢ for a panel without a fullscreen form', !has('⤢'))
 
-  const agentsIcon = findText('◆')
-  check('b hover: agents icon located', agentsIcon !== null, JSON.stringify(agentsIcon))
-  if (agentsIcon !== null) {
-    check('b hover: icon starts dim', !boldAt(agentsIcon.col, agentsIcon.row))
-    motion(agentsIcon.col, agentsIcon.row)
-    check('b hover: icon brightens and reveals its title', await settled(() => boldAt(agentsIcon.col, agentsIcon.row) && has('Agents'), { timeoutMs: 4000 }))
-    motion(agentsIcon.col + 5, agentsIcon.row + 3)
-    check('b hover: tooltip disappears after leaving the icon', await settled(() => !has('Agents'), { timeoutMs: 4000 }))
+  // ── b. arrows cycle the navigator (Todo → Jobs → Agents) ───────────────
+  const clickArrow = (glyph: '◀' | '▶'): boolean => {
+    const cell = findText(glyph)
+    if (cell === null) return false
+    click(cell.col, cell.row)
+    return true
   }
-
-  if (agentsIcon !== null) click(agentsIcon.col + 1, agentsIcon.row)
-  check('c click: icon hit area selects Agents', await settled(() => has('Agents') && has('⤢'), { timeoutMs: 4000 }))
-  const nextArrow = findText('▶')
-  check('c arrows: right arrow located', nextArrow !== null)
-  if (nextArrow !== null) click(nextArrow.col, nextArrow.row)
-  check('c arrows: next wraps from Agents to Todo', await settled(() => has('Todo') && !has('⤢'), { timeoutMs: 4000 }))
-  const previousArrow = findText('◀')
-  check('c arrows: left arrow located', previousArrow !== null)
-  if (previousArrow !== null) click(previousArrow.col, previousArrow.row)
-  check('c arrows: previous wraps from Todo to Agents', await settled(() => has('Agents') && has('⤢'), { timeoutMs: 4000 }))
+  check('b arrows: right arrow located', findText('▶') !== null, JSON.stringify(findText('▶')))
+  check('b arrows: Todo → Jobs', clickArrow('▶') && await settled(() => has('Jobs'), { timeoutMs: 4000 }))
+  check('b arrows: Jobs → Agents', clickArrow('▶') && await settled(() => has('Agents') && has('⤢'), { timeoutMs: 4000 }))
+  check('c arrows: left arrow located', findText('◀') !== null)
+  check('c arrows: previous wraps from Agents to Jobs', clickArrow('◀') && await settled(() => has('Jobs'), { timeoutMs: 4000 }))
+  check('c arrows: next returns to Agents', clickArrow('▶') && await settled(() => has('Agents') && has('⤢'), { timeoutMs: 4000 }))
 
   // ── d. ⤢ hands the ACTIVE panel id to the host ─────────────────────────
   const expand = findText('⤢')
@@ -235,10 +227,11 @@ try {
   )
   try {
     await settled(() => lines2().some(line => line.includes('Jobs')), { timeoutMs: 4000 })
-    const barRow = lines2()[0] ?? ''
-    check('f narrow: eight-panel bar keeps every icon and both arrows', (barRow.match(/[≡ⓘ∿?◆⌗♥]/g) ?? []).length === 7 && barRow.includes('◀') && barRow.includes('▶'), barRow.trim())
-    check('f narrow: ⤢ stays on the same row', barRow.includes('⤢'), barRow.trim())
-    check('f fold: the bar is exactly one row (row 1 is the rule)', (lines2()[1] ?? '').includes('─'), (lines2()[1] ?? '').trim())
+    const barRow = sidebarBrandRows(NROWS)
+    const bar = lines2()[barRow] ?? ''
+    check('f narrow: navigator shows the active panel only', bar.includes('Jobs') && bar.includes('◀') && bar.includes('▶') && !/[≡ⓘ∿◆♥]/u.test(bar), bar.trim())
+    check('f narrow: ⤢ stays on the same row', bar.includes('⤢'), bar.trim())
+    check('f fold: the bar is exactly one row (its rule is the next row)', (lines2()[barRow + 1] ?? '').includes('─'), (lines2()[barRow + 1] ?? '').trim())
   } finally {
     await app2.unmount()
   }

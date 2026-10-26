@@ -23,7 +23,7 @@ process.env.FORCE_COLOR = '3'
 // switches at runtime via setLang (i18n hot-swaps).
 process.env.DSH_TUI_LANG = 'zh'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, dims, prefs, { setLang }, termTest] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, dims, prefs, { setLang }, termTest, { sidebarBrandRows }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -35,6 +35,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLay
   import('../src/tuiDisplayPrefs.js'),
   import('../src/i18n.js'),
   import('./lib/term-test.mjs'),
+  import('../src/components/sidePanel/sidebarBrand.js'),
 ])
 const { render, ThemeProvider, Box, Text, AlternateScreen, useTerminalSize } = ui
 const { resolveSplit, resolveZoom, resolveSidePanelGeometry } = dims
@@ -42,7 +43,7 @@ const { applySidePanelOpen, applySidePanelRatio, applySidePanelPanels } = prefs
 const { settled, sleep } = termTest
 setLang('zh')
 
-const ROWS = 18
+const ROWS = 40
 
 // Minimal channel stub: the todo builtin reads goal/todos/working (all
 // empty -> renders nothing); nothing else in the column touches it.
@@ -104,6 +105,12 @@ function check(name: string, ok: boolean, extra = '') {
   console.log((ok ? 'PASS' : 'FAIL') + ': ' + name + (extra ? '  (' + extra + ')' : ''))
   if (!ok) failed += 1
 }
+
+// The brand header shrinks on short or narrow panels (the transcript gets
+// the rows back); a wide 40-row panel keeps the 24×16 mascot + one-row gap.
+check('brand: 22 rows keep the compact mascot header', sidebarBrandRows(22) === 3)
+check('brand: a 39-col panel stays text-only', sidebarBrandRows(40, 39) === 3)
+check('brand: a 46-col panel uses the 8-row mascot header + gap', sidebarBrandRows(40, 46) === 9)
 
 class FakeStdout extends Writable {
   columns: number
@@ -167,17 +174,26 @@ function cells(line: string): string[] { return [...line] }
 function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel: number }, hintNeedle: string, hintAnti: string) {
   const lines = frame.lines()
   const chatCol = geo.chat
-  // Divider column: tee at rule rows, seam elsewhere.
+  const brandRows = sidebarBrandRows(ROWS, geo.panel)
+  const barRow = brandRows
+  const ruleRow = brandRows + 1
+  // Divider column: tee where the panel rules meet the seam, else a seam.
   for (let y = 0; y < ROWS; y += 1) {
-    const expected = (y === 1 || y === ROWS - 2) ? '├' : '│'
+    const expected = (y === ruleRow || y === ROWS - 2) ? '├' : '│'
     const got = cells(lines[y])[chatCol]
     check(name + ': divider row ' + y + ' is ' + expected, got === expected, 'got ' + JSON.stringify(got) + ' line=' + JSON.stringify(lines[y]))
   }
-  check(name + ': row 0 carries the active title', lines[0].includes('待办'), JSON.stringify(lines[0]))
-  check(name + ': row 0 shows the inactive panel icons', lines[0].includes('▸') && lines[0].includes('◆'), JSON.stringify(lines[0]))
-  // Rules frame the host: row 1 and rows-2 are horizontal rules on the panel side.
-  const ruleAfter = cells(lines[1]).slice(chatCol + 1).join('').trim()
-  check(name + ': row 1 rule right of the divider', ruleAfter.length > 0 && ruleAfter.startsWith('─'), ruleAfter.slice(0, 8))
+  // Brand header: mascot + wordmark occupy the first brand rows.
+  check(name + ': brand header carries DST·Comet', lines.slice(0, brandRows).some(line => line.includes('DST·Comet')),
+    JSON.stringify(lines.slice(0, brandRows)))
+  // PanelBar: one active icon + title between the two arrows (no tab fan).
+  check(name + ': row bar carries the active title', lines[barRow]!.includes('待办'), JSON.stringify(lines[barRow]))
+  check(name + ': row bar shows only the active tab', lines[barRow]!.includes('≡ 待办') && !lines[barRow]!.includes('◆') && !lines[barRow]!.includes('▸'),
+    JSON.stringify(lines[barRow]))
+  check(name + ': row bar carries the nav arrows', lines[barRow]!.includes('◀') && lines[barRow]!.includes('▶'), JSON.stringify(lines[barRow]))
+  // Rules frame the host: the bar's rule and the hint's rule.
+  const ruleAfter = cells(lines[ruleRow]).slice(chatCol + 1).join('').trim()
+  check(name + ': rule under the bar right of the divider', ruleAfter.length > 0 && ruleAfter.startsWith('─'), ruleAfter.slice(0, 8))
   const ruleBefore = cells(lines[ROWS - 2]).slice(chatCol + 1).join('').trim()
   check(name + ': rows-2 rule right of the divider', ruleBefore.length > 0 && ruleBefore.startsWith('─'), ruleBefore.slice(0, 8))
   // Hint on the last row, swapping with focus.
@@ -216,7 +232,7 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
 {
   const frame = await mountSplit(120, true, true)
   assertSplitFrame('zoom(120)/chat=64', frame, resolveZoom(120), 'Esc 聊天', 'Ctrl+B 聚焦侧栏')
-  check('zoom(120)/chat=64: divider sits at column 64', cells(frame.lines()[5])[64] === '│', JSON.stringify(frame.lines()[5]))
+  check('zoom(120)/chat=64: divider sits at column 64', cells(frame.lines()[sidebarBrandRows(ROWS, resolveZoom(120).panel)]!)[64] === '│', JSON.stringify(frame.lines()[sidebarBrandRows(ROWS, resolveZoom(120).panel)]))
   await frame.app.unmount()
 }
 
@@ -227,7 +243,9 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
   const frame = await mountSplit(93, true)
   const lines = frame.lines()
   assertSplitFrame('93/focus=panel', frame, geo, 'Esc 聊天', 'Ctrl+B 聚焦侧栏')
-  check('93: carousel arrows and title occupy row 0 without overflow', lines[0]?.includes('◀') && lines[0]?.includes('▶') && !/\+\d+/.test(lines[0]!), JSON.stringify(lines[0]))
+  check('93: nav arrows and title occupy the bar row without overflow',
+    lines[sidebarBrandRows(ROWS, geo.panel)]?.includes('◀') && lines[sidebarBrandRows(ROWS, geo.panel)]?.includes('▶') && !/\+\d+/.test(lines[sidebarBrandRows(ROWS, geo.panel)]!),
+    JSON.stringify(lines[sidebarBrandRows(ROWS, geo.panel)]))
   // Hint is exactly one row: rows-2 is the rule, and no hint text above it.
   check('93: hint is exactly one row (rows-2 is the rule)', !lines[ROWS - 2].includes('Esc') && lines[ROWS - 1].includes('Esc'), JSON.stringify(lines[ROWS - 2]))
   await frame.app.unmount()
@@ -237,7 +255,7 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
   await frame2.app.unmount()
 }
 
-// --- 5. Centered carousel title and seven-panel narrow layout ------------
+// --- 5. Single-tab navigator: arrows + active icon/title only -----------
 {
   const { PanelBar } = await import('../src/components/sidePanel/PanelBar.js')
   const { stringWidth } = await import('../src/ink/stringWidth.js')
@@ -252,19 +270,19 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
   ]
   const frame = await mountTree(28, <PanelBar tabs={tabs} activeId="p3" width={28} focused canExpand />)
   const row = frame.lines()[0] ?? ''
-  const shownTitle = 'P3 long t…'
+  const shownTitle = 'P3 long title'
   const titlePos = termTest.findText(frame.term, shownTitle)
-  check('carousel(28/7): active title truncates to the middle budget', row.includes(shownTitle), JSON.stringify(row))
-  check('carousel(28/7): active title center stays within one cell', titlePos !== null && Math.abs(titlePos.col + stringWidth(shownTitle) / 2 - 13) <= 1, JSON.stringify(titlePos))
-  check('carousel(28/7): both edge arrows and fullscreen affordance fit', row.includes('◀') && row.includes('▶') && row.includes('⤢'), JSON.stringify(row))
-  check('carousel(28/7): all six icons, including the title fallback, stay visible', (row.match(/[≡Nⓘ∿◆♥]/g) ?? []).length === 6, JSON.stringify(row))
-  check('carousel(28/7): unread counts follow their panel icons', row.includes('≡3') && row.includes('ⓘ4') && row.includes('◆2'), JSON.stringify(row))
+  check('nav(28/7): active title is rendered', row.includes(shownTitle), JSON.stringify(row))
+  check('nav(28/7): title is centered between the arrows', titlePos !== null && Math.abs(titlePos.col + stringWidth(shownTitle) / 2 - 12.5) <= 2, JSON.stringify(titlePos))
+  check('nav(28/7): both arrows and the fullscreen affordance fit', row.includes('◀') && row.includes('▶') && row.includes('⤢'), JSON.stringify(row))
+  check('nav(28/7): only the active icon is shown', row.includes('▸') && !/[≡ⓘ∿◆♥]/u.test(row), JSON.stringify(row))
+  check('nav(28/7): inactive unread counts are not rendered', !row.includes('≡3') && !row.includes('ⓘ4') && !row.includes('◆2'), JSON.stringify(row))
   await frame.app.unmount()
 
   const single = await mountTree(28, <PanelBar tabs={[{ id: 'solo', title: 'Solo' }]} activeId="solo" width={28} focused canExpand />)
   const singleTitle = termTest.findText(single.term, 'Solo')
-  check('carousel(single): title remains centered without arrows', singleTitle !== null && Math.abs(singleTitle.col + 2 - 13) <= 1 && !single.lines()[0]!.includes('◀') && !single.lines()[0]!.includes('▶'), JSON.stringify(single.lines()[0]))
-  check('carousel(single): fullscreen affordance remains available', single.lines()[0]!.includes('⤢'))
+  check('nav(single): title remains centered without arrows', singleTitle !== null && Math.abs(singleTitle.col + 2 - 12.5) <= 2 && !single.lines()[0]!.includes('◀') && !single.lines()[0]!.includes('▶'), JSON.stringify(single.lines()[0]))
+  check('nav(single): fullscreen affordance remains available', single.lines()[0]!.includes('⤢'))
   await single.app.unmount()
   applySidePanelPanels('todo,jobs,agents')
 }
@@ -291,7 +309,7 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
   await sleep(120) // 固定窗:墙钟 resize 触发的是节流重排，渲染节流窗口本身就是被等语义
   const shrunkGeo = resolveSidePanelGeometry({ columns: 100, open: true, zoom: false, ratio: 0.68 })
   if (shrunkGeo === null) throw new Error('100 columns must split')
-  const shrunkLine = (frame.lines()[5] ?? '').slice(0, 100)
+  const shrunkLine = (frame.lines()[sidebarBrandRows(ROWS, shrunkGeo.panel)] ?? '').slice(0, 100)
   check('resize: 100-col frame re-splits to chat=68/panel=31', [...shrunkLine][shrunkGeo.chat] === '│', JSON.stringify(shrunkLine))
   frame.stdout.columns = 120
   frame.term.resize(120, ROWS)

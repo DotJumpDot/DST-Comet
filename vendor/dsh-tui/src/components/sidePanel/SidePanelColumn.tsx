@@ -14,6 +14,8 @@ import { PanelHost } from './PanelHost.js'
 import { panelStore } from './PanelStore.js'
 import { registerBuiltinPanels } from './builtinPanels.js'
 import type { SidePanelController } from './useSidePanel.js'
+import { SIDEBAR_BRAND_GAP, SIDEBAR_BRAND_ROWS, cycleSidebarLogo, getSidebarLogo, sidebarBrandRows, subscribeSidebarLogo } from './sidebarBrand.js'
+import { SidebarMascot } from './SidebarMascot.js'
 
 registerBuiltinPanels()
 
@@ -63,19 +65,46 @@ function EmptyNone(): React.ReactNode {
   )
 }
 
-/** DST Comet brand header: a compact two-row splash pinned above the panel
- *  bar — the product mark and the live model·effort line (the sidebar's
- *  take on the boot splash's 「◆ dsh-TUI v… / model · effort」 block). */
-function BrandHeader({ width, channel }: { readonly width: number; readonly channel: ChannelUi }): React.ReactNode {
+/** DST Comet brand header: the splash's pixel mascot beside the product mark
+ *  and the live model·effort line. Clicking the mascot cycles whale girl →
+ *  whale → none (persisted in `~/.dsh-tui/sidebar-logo.json`); the wordmark
+ *  keeps a small right indent so it reads as a caption next to the art.
+ *  Short terminals drop to a 2-row strip so the transcript keeps its rows. */
+function BrandHeader({ width, height, channel }: { readonly width: number; readonly height: number; readonly channel: ChannelUi }): React.ReactNode {
   // Same memo pattern as Chat's tuiVersion: the call reads installed files,
   // and this column re-renders on every channel emission.
   const version = React.useMemo(() => installedTuiVersion(), [])
-  const mark = `◆ DST·Comet${version !== undefined ? ' v' + version : ''}`
+  const logo = React.useSyncExternalStore(subscribeSidebarLogo, getSidebarLogo)
+  // A 24-column mascot needs a wide sidebar; below that the wordmark takes
+  // the full width. The wordmark starts right after the art (one-cell gap).
+  const showLogo = logo !== 'none' && width >= 42
+  const mark = `DST·Comet${version !== undefined ? ' v' + version : ''}`
   const meta = [channel.model, channel.reasoningEffort].filter(part => part !== undefined && part !== '').join(' · ')
+  const compact = height < SIDEBAR_BRAND_ROWS
   return (
-    <Box flexDirection="column" flexShrink={0} paddingX={1} width={width}>
-      <Text bold color="accent" wrap="truncate-end">{mark}</Text>
-      <Text dimColor wrap="truncate-end">{meta}</Text>
+    <Box flexDirection="row" flexShrink={0} paddingX={1} width={width} height={height} overflow="hidden">
+      {showLogo && (
+        <Box
+          flexShrink={0}
+          onClick={event => {
+            event.stopImmediatePropagation()
+            cycleSidebarLogo()
+          }}
+        >
+          <SidebarMascot variant={logo === 'whale' ? 'whale' : 'whaleGirl'} compact={compact} />
+        </Box>
+      )}
+      <Box
+        flexDirection="column"
+        flexGrow={1}
+        flexShrink={1}
+        paddingLeft={showLogo ? 0 : 2}
+        paddingTop={compact ? 0 : 1}
+        overflow="hidden"
+      >
+        <Text bold color="accent" wrap="truncate-end">{mark}</Text>
+        <Text dimColor wrap="truncate-end">{meta}</Text>
+      </Box>
     </Box>
   )
 }
@@ -125,15 +154,17 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
     // controller 对象本身每次渲染都是新的，不能进依赖表。
     [controller.openPanel],
   )
-  // Host 高度 = 列高 - 品牌头(2) - PanelBar/上规/下规/hint 四行 chrome。
-  const hostHeight = Math.max(1, rows - 6)
+  // Host 高度 = 列高 - 品牌头（宽屏 9 / 矮屏 3，含 1 行留白）- PanelBar/上规/下规/hint 四行 chrome。
+  const brandRows = sidebarBrandRows(rows, width)
+  const hostHeight = Math.max(1, rows - (brandRows + 4))
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
-      <BrandHeader width={width} channel={channel} />
+      <BrandHeader width={width} height={brandRows - SIDEBAR_BRAND_GAP} channel={channel} />
+      <Box height={SIDEBAR_BRAND_GAP} flexShrink={0} />
       <PanelBar
         tabs={tabs}
         activeId={controller.activePanelId}
-        width={width - 2}
+        width={width}
         focused={focused}
         canExpand={canExpand}
         onExpand={canExpand ? () => onExpand?.(controller.activePanelId ?? '') : undefined}

@@ -490,18 +490,28 @@ export function SubagentDetailScene({
   const outer = panelMode
     ? { paddingLeft: 1, paddingRight: 1, paddingTop: 0 }
     : { paddingX: 2, paddingY: 1 }
+  // Narrow sidebar: stack the status on its own line and keep the identity
+  // line one row instead of squeezing the description into 8 columns.
+  const narrow = columns < 64
+  const compactTabs = columns < 56
 
   return (
     <Box flexDirection="column" {...outer}>
       {/* Header: identity line, stats line, timing line */}
       <Box flexDirection="row" gap={1}>
         <Text color={info.color} bold>{info.glyph}</Text>
-        <Text bold>{`${t('subagent-card-prefix')}${subagent.description}`}</Text>
-        <Text dimColor>·</Text>
-        <Text color={info.color}>{info.label}</Text>
-        {subagent.mode === 'continuable' && <Text color="warning">{t('subagent-mode-continuable')}</Text>}
-        {subagent.mode === 'one-shot' && <Text dimColor>{t('subagent-mode-one-shot')}</Text>}
-        <Box flexGrow={1} />
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text bold wrap="wrap">{`${t('subagent-card-prefix')}${subagent.description}`}</Text>
+        </Box>
+        {!narrow && (
+          <>
+            <Text dimColor>·</Text>
+            <Text color={info.color}>{info.label}</Text>
+            {subagent.mode === 'continuable' && <Text color="warning">{t('subagent-mode-continuable')}</Text>}
+            {subagent.mode === 'one-shot' && <Text dimColor>{t('subagent-mode-one-shot')}</Text>}
+          </>
+        )}
+        {!narrow && <Box flexGrow={1} />}
         {/* 主屏查看（'v' 键的鼠标等价）。只放字形：窄面板里长标签会把
             Subagent: <名> 顶到下一行。 */}
         {onOpenView !== undefined && (
@@ -512,11 +522,18 @@ export function SubagentDetailScene({
         {/* 可点击退出（Esc/Enter 的鼠标等价），hover 提亮 */}
         <ExitButton onClick={onBack} />
       </Box>
-      <Text>
+      {narrow && (
+        <Text wrap="truncate-end">
+          <Text color={info.color}>{info.label}</Text>
+          {subagent.mode === 'continuable' && <Text color="warning">{` · ${t('subagent-mode-continuable')}`}</Text>}
+          {subagent.mode === 'one-shot' && <Text dimColor>{` · ${t('subagent-mode-one-shot')}`}</Text>}
+        </Text>
+      )}
+      <Text wrap="truncate-end">
         <Text>{subagent.model ?? subagent.provider ?? 'default'}</Text>
         <Text dimColor>{shownDuration !== undefined ? ` · ${formatDuration(shownDuration)} · ` : ' · '}{totalTokens || '—'} tok · {toolsCount} tools</Text>
       </Text>
-      <Text dimColor>
+      <Text dimColor wrap="truncate-end">
         {`${t('subagent-started')} ${formatTimestamp(subagent.startedAt)}`
         + (subagent.completedAt ? ` · ${t('subagent-completed')} ${formatTimestamp(subagent.completedAt)}` : '')}
         {` · id ${subagent.agentId.slice(0, 8)}`}
@@ -527,15 +544,21 @@ export function SubagentDetailScene({
         </Box>
       )}
 
-      {/* Tab bar with page indicator */}
-      <Box flexDirection="row" gap={0} marginTop={1}>
-        {tab('summary', t('subagent-tab-summary'))}
-        {tab('output', subagent.outputEvents.length > 0 ? `${t('subagent-output-label')} ${subagent.outputEvents.length}` : t('subagent-output-label'))}
+      {/* Tab bar with page indicator: labels wrap as WHOLE tabs, never
+          character-by-character; narrow panels drop the counts and use the
+          short labels so all four fit on one row. */}
+      <Box flexDirection="row" gap={0} marginTop={1} flexWrap="wrap">
+        {tab('summary', compactTabs ? t('subagent-tab-summary-short') : t('subagent-tab-summary'))}
+        {tab('output', compactTabs
+          ? t('subagent-tab-output-short')
+          : subagent.outputEvents.length > 0 ? `${t('subagent-output-label')} ${subagent.outputEvents.length}` : t('subagent-output-label'))}
         {/* 没有转录来源就没有这个页签 */}
-        {loadTranscript !== undefined && tab('transcript', t('subagent-tab-transcript'))}
-        {tab('tools', toolsCount > 0 ? `${t('subagent-tools')} ${toolsCount}` : t('subagent-tools'))}
+        {loadTranscript !== undefined && tab('transcript', compactTabs ? t('subagent-tab-transcript-short') : t('subagent-tab-transcript'))}
+        {tab('tools', compactTabs
+          ? t('subagent-tools-short')
+          : toolsCount > 0 ? `${t('subagent-tools')} ${toolsCount}` : t('subagent-tools'))}
         {/* 消息流页：feed 非空才存在 */}
-        {messages.length > 0 && tab('messages', `${t('agent-messages-tab')} ${messages.length}`)}
+        {messages.length > 0 && tab('messages', compactTabs ? t('subagent-tab-messages-short') : `${t('agent-messages-tab')} ${messages.length}`)}
         <Text dimColor>{`  ${pageIndex + 1}/${pages.length}`}</Text>
       </Box>
       <Text dimColor>{'─'.repeat(Math.max(20, Math.min(72, columns - 6)))}</Text>
@@ -716,6 +739,10 @@ export function SubagentDetailScene({
                           marginTopOnTurn={margin}
                           verbose={expandedLeaf === row.key}
                           isExpanded={expandedLeaf === row.key}
+                          // The child transcript is a DETAIL page: keep the
+                          // result preview visible instead of inheriting the
+                          // main transcript's one-line card mode.
+                          oneLineToolCards={false}
                           onClick={() => setExpandedLeaf(prev => prev === row.key ? null : row.key)}
                         />
                       )
@@ -794,26 +821,36 @@ export function SubagentDetailScene({
       )}
 
       <Divider color="subtle" title="" />
-      {/* Footer hint */}
-      <Box marginTop={0} flexDirection="row">
-        <Text dimColor>
-          {`←/→ ${t('subagent-hint-page')} · ↑/↓ ${t('subagent-hint-scroll')}`
-            + ((activePage === 'output' && hasThinking) || (activePage === 'transcript' && hasTranscriptThinking) ? ` · ${t('subagent-hint-fold')}` : '')
-            + (activePage === 'transcript' && transcript.status === 'ready' && transcript.hasOlder
-              ? ` · o ${t('subagent-transcript-load-older', { count: transcript.sourceCursor === undefined ? Math.min(TRANSCRIPT_OLDER_CHUNK, transcript.skippedFromStart) : TRANSCRIPT_OLDER_CHUNK })}`
-              : '')}
-        </Text>
-        {isRunning && onInterrupt && (
-          <>
-            <Text dimColor>{' · '}</Text>
-            <Box onClick={() => onInterrupt(subagent.agentId)}>
-              <Text dimColor bold color="warning">X interrupt</Text>
-            </Box>
-          </>
-        )}
-        {compose !== undefined && <Text dimColor>{` · i ${t('subagent-hint-compose')}`}</Text>}
-        <Text dimColor>{` · Esc ${t('subagent-hint-back')}`}</Text>
-      </Box>
+      {/* Footer hint: one line, truncate instead of wrapping into the body. */}
+      {narrow ? (
+        <Box marginTop={0} flexDirection="row">
+          <Text dimColor wrap="truncate-end">
+            {`←/→ ${t('subagent-hint-page')} · ↑/↓ ${t('subagent-hint-scroll')}`
+              + (isRunning && onInterrupt !== undefined ? ' · X' : '')
+              + ` · Esc`}
+          </Text>
+        </Box>
+      ) : (
+        <Box marginTop={0} flexDirection="row">
+          <Text dimColor>
+            {`←/→ ${t('subagent-hint-page')} · ↑/↓ ${t('subagent-hint-scroll')}`
+              + ((activePage === 'output' && hasThinking) || (activePage === 'transcript' && hasTranscriptThinking) ? ` · ${t('subagent-hint-fold')}` : '')
+              + (activePage === 'transcript' && transcript.status === 'ready' && transcript.hasOlder
+                ? ` · o ${t('subagent-transcript-load-older', { count: transcript.sourceCursor === undefined ? Math.min(TRANSCRIPT_OLDER_CHUNK, transcript.skippedFromStart) : TRANSCRIPT_OLDER_CHUNK })}`
+                : '')}
+          </Text>
+          {isRunning && onInterrupt && (
+            <>
+              <Text dimColor>{' · '}</Text>
+              <Box onClick={() => onInterrupt(subagent.agentId)}>
+                <Text dimColor bold color="warning">X interrupt</Text>
+              </Box>
+            </>
+          )}
+          {compose !== undefined && <Text dimColor>{` · i ${t('subagent-hint-compose')}`}</Text>}
+          <Text dimColor>{` · Esc ${t('subagent-hint-back')}`}</Text>
+        </Box>
+      )}
     </Box>
   )
 }

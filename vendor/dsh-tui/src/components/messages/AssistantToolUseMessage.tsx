@@ -1,6 +1,6 @@
 import React from 'react'
 import { extname } from 'node:path'
-import { Box, Text, useTerminalSize } from '../../ui.js'
+import { Box, Text, useTerminalSize, useTheme } from '../../ui.js'
 import { stringWidth } from '../../ink/stringWidth.js'
 import { useAnimationFrame } from '../../ink/hooks/use-animation-frame.js'
 import type { ToolCallView, ToolFileDiff, ToolResultView, ToolRow } from '../../dsh-adapter/channel.js'
@@ -13,7 +13,7 @@ import { formatClock } from '../../trajectory/format.js'
 import { foldLongLines } from '../../utils/fold-long-lines.js'
 import { getLang, t, tOr, type I18nKey } from '../../i18n.js'
 import type { ToolBackground } from '../../tuiDisplayPrefs.js'
-import type { Theme } from '../../theme.js'
+import { getTheme, type Theme } from '../../theme.js'
 import type { ClickEvent } from '../../ink/events/click-event.js'
 import { revealLinesOf, snapReveal } from '../smoothReveal.js'
 import { useRevealVersion } from '../../hooks/useRevealVersion.js'
@@ -22,6 +22,7 @@ import { agentMessageStateColor, agentMessageStateText } from './TranscriptLeave
 import type { AgentMessageState } from './agentTeam.js'
 import { liveOutputMaxLines, liveOutputView } from './liveOutputLines.js'
 import { isPatchDiff, parseFilePatch, patchHeader, type ToolPatchDiff } from '../diffPatch.js'
+import { toolCardWash, toolToneColor, toolToneFamily, toolWashOf, type ToolToneFamily } from './toolTone.js'
 
 type Props = {
   tool: ToolRow
@@ -67,9 +68,10 @@ type Props = {
   foldTerminalCommand?: boolean
   /**
    * DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`; on by
-   * default): a collapsed terminal (Bash/Pwsh) or generic (MCP) card renders
-   * its header line only — no preview body, no fold hint; click / Ctrl+O
-   * expands. Error bodies and split diffs keep the normal collapsed shape.
+   * default): a collapsed terminal (Bash/Pwsh), MCP/generic, Read or
+   * Grep/Glob card renders its header line only — no preview body, no fold
+   * hint; click / Ctrl+O expands. Error bodies, split diffs and SendMessage
+   * relay cards keep the normal collapsed shape.
    */
   oneLineToolCards?: boolean
   /**
@@ -276,21 +278,13 @@ const del = (text: string): BodyLine => ({ text, tone: 'del' })
 const dim = (text: string): BodyLine => ({ text, tone: 'dim' })
 const plain = (text: string): BodyLine => ({ text, tone: 'plain' })
 
-/** Tool-name color by category (mist-blue accents): read/search tools keep
- *  the brand blue, file-mutating tools get the warm gold accent, exec /
- *  terminal tools get mist cyan. Exported for the subagent card, which
- *  mirrors the transcript tool-card name styling. */
-const TOOL_NAME_MUTATE = new Set(['edit', 'write', 'multiedit', 'notebookedit'])
-const TOOL_NAME_EXEC = new Set(['bash', 'bashpersistent', 'sh', 'shell', 'terminal'])
+/** Tool-name color by family (DST Comet): Read = cyan, Grep/Glob = violet,
+ *  Pwsh/Bash = green, MCP = rose, Edit/Write = gold, web = mist blue,
+ *  subagents/jobs = rose. Exported for the subagent card and the detail
+ *  scene, which mirror the transcript tool-card name styling. */
 export function toolNameColor(raw: string, category?: 'mutate' | 'exec' | 'other'): keyof Theme {
   // A backend-declared colour family wins over the id heuristics below.
-  if (category === 'mutate') return 'toolNameMutate'
-  if (category === 'exec') return 'toolNameExec'
-  if (category === 'other') return 'accent'
-  const n = raw.toLowerCase()
-  if (TOOL_NAME_MUTATE.has(n)) return 'toolNameMutate'
-  if (TOOL_NAME_EXEC.has(n)) return 'toolNameExec'
-  return 'accent'
+  return toolToneColor(toolToneFamily(raw, category))
 }
 
 /** One side's text → display lines (upstream contentLines rule: empty text
@@ -554,7 +548,7 @@ function toolCardMetaTooltip(tool: ToolRow, isRunning: boolean, isError: boolean
   return parts.join(' · ')
 }
 
-function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguage, nameColor, filePath, onOpenFile, metaTooltip, headerTextBudget }: {
+function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguage, nameColor, filePath, onOpenFile, metaTooltip, headerTextBudget, singleLine = false }: {
   name: string
   title: string | undefined
   isTerminal: boolean
@@ -584,6 +578,10 @@ function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguag
    * clipped by the 480-char budget) — this budget gates just that cut.
    */
   headerTextBudget: number
+  /** One-line mode: flatten embedded newlines and truncate the title before
+   *  it can wrap onto a second row (long MCP code args / terminal scripts).
+   *  The clickable path affordance is dropped here; expanding restores it. */
+  singleLine?: boolean
 }): React.ReactNode {
   // Hover tooltip rule: pop ONLY when the header genuinely hides content —
   // a folded terminal script, args clipped past the 480-char budget, or a
@@ -591,21 +589,44 @@ function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguag
   // that fully fits its row stays silent: a float that repeats or annotates
   // text already visible next to the pointer is noise, not detail. Empty
   // content is a no-op inside the hook.
+  const flatTitle = title === undefined ? undefined : title.replace(/\s+/gu, ' ').trim()
   const headerTooltip = useTooltip(() => {
     const meta = metaTooltip()
     const withMeta = (full: string): string => (meta === '' ? full : `${full}\n${meta}`)
+    if (singleLine && flatTitle !== undefined) {
+      return stringWidth(flatTitle) > headerTextBudget ? withMeta(title ?? '') : ''
+    }
     if (folded !== undefined) return withMeta(title ?? '')
     if (title === undefined && clipHeaderArgs(displayArgs) !== displayArgs) return withMeta(displayArgs)
     // Width truncation: only the non-terminal title Text is truncate-end —
     // a long one-line title is really cut by layout when it overflows the
     // row. Terminal titles WRAP instead (default Text wrap, nothing hidden)
     // and args within the 480 budget wrap too; they never reach this gate.
-    if (title !== undefined && !isTerminal && stringWidth(title.trim()) > headerTextBudget) {
+    if (title !== undefined && !isTerminal && stringWidth(flatTitle ?? '') > headerTextBudget) {
       return withMeta(title.trim())
     }
     // Header fully visible: nothing hidden, nothing to add — stay silent.
     return ''
   })
+  if (singleLine && title !== undefined) {
+    if (isTerminal) {
+      return (
+        <>
+          <Box flexShrink={0}>
+            <Text bold color={nameColor} wrap="truncate-end">{name}</Text>
+          </Box>
+          <Box flexWrap="nowrap" overflow="hidden" {...headerTooltip}>
+            <Text wrap="truncate-end">{`(${flatTitle ?? ''})`}</Text>
+          </Box>
+        </>
+      )
+    }
+    return (
+      <Box flexWrap="nowrap" overflow="hidden" {...headerTooltip}>
+        <Text bold color={nameColor} wrap="truncate-end">{flatTitle}</Text>
+      </Box>
+    )
+  }
   if (title === undefined) {
     return (
       <>
@@ -738,6 +759,13 @@ export function AssistantToolUseMessage({
   // The settled view carries the applied diff / actual output; while running,
   // the call view already shows the pending change.
   const view = tool.resultView ?? tool.callView
+  // DST Comet: one tone family per tool kind drives the title, the status
+  // dot and the card wash, so Read / Grep / Pwsh / MCP never look alike.
+  const toolCategory = view?.category ?? tool.callView?.category
+  const toneFamily: ToolToneFamily = toolToneFamily(tool.name, toolCategory)
+  // Background-aware themes get a wash mixed from their own card surface.
+  const [themeName] = useTheme()
+  const palette = getTheme(themeName)
   const name = displayName(tool.name, view?.displayKey ?? tool.callView?.displayKey)
   const minWidth = stringWidth(name) + 2
   const filePath = filePathFromTool(tool, view)
@@ -800,10 +828,22 @@ export function AssistantToolUseMessage({
   // pop a tooltip. No extra slack, and the tool name is NOT deducted — a
   // non-terminal title carries its own first word, so double-counting name
   // pushed the gate ~10 cols too tight and floated fully visible titles.
-  const headerTextBudget = Math.max(0, columns - 2 - (interactive ? 2 : 0)
-    - (!isRunning && elapsedText !== '' ? stringWidth(elapsedText) : 0))
   const useSplitDiff = !isError && view?.card === 'diff' &&
     (diffLayout === 'split' || (diffLayout !== 'unified' && columns >= SPLIT_DIFF_MIN_COLS))
+  // DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`): a settled
+  // terminal / MCP / Read / Grep card keeps its header line only. The row is
+  // the toggle (click / Ctrl+O expands), so a persistent `▸` affordance rides
+  // the header even when the pointer is elsewhere. SendMessage relay cards
+  // keep their preview body: the message text + summary IS the card (the raw
+  // JSON stays behind the click), and hiding it would leave a bare
+  // `SendMessage → target` header.
+  const oneLineCard = oneLineToolCards && !verbose && !isRunning && !sendMessageRawOpen &&
+    sendMessage === undefined && !isError && !useSplitDiff &&
+    (view === undefined || view.card === 'terminal' || view.card === 'generic' ||
+      view.card === 'read' || view.card === 'search')
+  const headerTextBudget = Math.max(0, columns - 2 - (interactive ? 2 : 0)
+    - (!isRunning && elapsedText !== '' ? stringWidth(elapsedText) : 0)
+    - (oneLineCard ? 2 : 0))
   // Live output of the running call: the newest lines of the bounded tail,
   // sanitized and cut to the body width in cells (liveOutputLines.ts).
   // Memoized on the tail itself, so the 1 s elapsed tick re-renders without
@@ -853,18 +893,13 @@ export function AssistantToolUseMessage({
       body = [dim(t('tool-running-elapsed', { duration: formatDuration(Math.max(0, Date.now() - (tool.startedAt ?? Date.now()))) }))]
     }
   }
-  // DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`): collapsed
-  // terminal and generic cards render their header line only — the preview
-  // body and its fold hint disappear; click / Ctrl+O reveals everything.
-  // Running cards are exempt: the running-elapsed line and the live-output
-  // window (spliced into shownLines below) are the only progress feedback a
-  // long command has. Error verdicts keep the normal body (a stack trace
-  // must stay readable), split diffs are untouched, and the terminal
+  // One-line cards drop the preview body and its fold hint; the header row
+  // (with its persistent ▸) is the card. Running cards are exempt: the
+  // running-elapsed line and the live-output window are the only progress
+  // feedback a long command has. Error verdicts keep the normal body (a stack
+  // trace must stay readable), split diffs are untouched, and the terminal
   // exit-code footnote below still rides outside every cap.
-  if (
-    oneLineToolCards && !verbose && !isRunning && !sendMessageRawOpen && !isError && !useSplitDiff
-    && (view === undefined || view.card === 'terminal' || view.card === 'generic')
-  ) {
+  if (oneLineCard) {
     body = []
   }
   const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : TEXT_BODY_MAX_LINES
@@ -950,20 +985,20 @@ export function AssistantToolUseMessage({
   // Nested split-diff context panes must also yield to interaction highlights.
   // `none` leaves them transparent so the selected/expanded root shows through.
   const ordinaryToolBackground = isSelected || isExpanded ? 'none' : toolBackground
-  const ordinaryBackground = ordinaryToolBackground === 'subtle'
-    ? 'toolCardBackgroundDim'
-    : ordinaryToolBackground === 'strong'
-      ? 'toolCardBackground'
-      : undefined
-  // Hover affordance for the click-to-toggle row: the theme's tool-card blue
-  // face marks the call's content area while the pointer dwells (the
-  // toolBackground treatment steps up one level to the strong card face), the
-  // collapsed fold hint (lines-folded-expand) steps from dim to text, the
-  // elapsed clock stops dimming, and a ▾/▴ discloses the row is a toggle.
+  // DST Comet: the wash is the family tone blended into the theme's own card
+  // surface — Read/Grep/Pwsh/MCP each get a distinct, quiet tint instead of
+  // one uniform blue-grey.
+  const ordinaryBackground = toolCardWash(palette, toneFamily, toolWashOf(ordinaryToolBackground))
+  // Hover affordance for the click-to-toggle row: the card's family face
+  // brightens while the pointer dwells (the toolBackground treatment steps up
+  // one level to the strong card face), the collapsed fold hint
+  // (lines-folded-expand) steps from dim to text, the elapsed clock stops
+  // dimming, and a ▾/▴ discloses the row is a toggle.
   // No layout change: the indicator is a fixed column on the header line, the
   // body never moves.
   const [hovered, setHovered] = React.useState(false)
   const hoverTint = interactive && hovered && !isSelected
+  const hoverBackground = toolCardWash(palette, toneFamily, 'hover')
   // SendMessage 结果行：状态只取结果里明确给出的值；resumedAgentId/pin
   // 显示为「已唤醒 <短id>」；没有明确状态时注明送达状态未知。
   const sendMessageState = sendMessage === undefined ? undefined : sendMessageCardState(tool)
@@ -979,7 +1014,7 @@ export function AssistantToolUseMessage({
       onClick={onClick}
       // Only selection paints a highlight; the configured treatment applies
       // to an ordinary card. Diff line tints stay - they are content, not chrome.
-      backgroundColor={isSelected ? 'messageActionsBackground' : hoverTint ? 'toolCardBackground' : ordinaryBackground}
+      backgroundColor={isSelected ? 'messageActionsBackground' : hoverTint ? hoverBackground : ordinaryBackground}
       onMouseEnter={interactive ? () => setHovered(true) : undefined}
       onMouseLeave={interactive ? () => setHovered(false) : undefined}
     >
@@ -990,11 +1025,17 @@ export function AssistantToolUseMessage({
             isUnresolved={isRunning}
             isError={isError}
             toolName={tool.name}
+            toolCategory={toolCategory}
           />
-          <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} folded={foldedHeader} displayArgs={displayArgs} argsLanguage={argsLanguage} nameColor={toolNameColor(tool.name, view?.category ?? tool.callView?.category)} filePath={filePath} onOpenFile={onOpenFile} metaTooltip={() => toolCardMetaTooltip(tool, isRunning, isError)} headerTextBudget={headerTextBudget} />
+          <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} folded={foldedHeader} displayArgs={displayArgs} argsLanguage={argsLanguage} nameColor={toolToneColor(toneFamily)} filePath={filePath} onOpenFile={onOpenFile} metaTooltip={() => toolCardMetaTooltip(tool, isRunning, isError)} headerTextBudget={headerTextBudget} singleLine={!verbose && (oneLineCard || isError || isRunning)} />
           {!isRunning && (
             <Box flexWrap="nowrap">
               <Text dimColor={!hovered}>{elapsedText}</Text>
+            </Box>
+          )}
+          {oneLineCard && !hovered && (
+            <Box flexShrink={0}>
+              <Text color="subtle">{' ▸'}</Text>
             </Box>
           )}
           {hovered && (

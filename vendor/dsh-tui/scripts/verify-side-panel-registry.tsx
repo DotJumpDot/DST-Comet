@@ -21,7 +21,7 @@ export {}
 process.env.FORCE_COLOR = '3'
 process.env.DSH_TUI_LANG = 'en'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, { panelStore }, prefs, { t }, { stringWidth }, termTest] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, { panelStore }, prefs, { t }, { stringWidth }, termTest, { sidebarBrandRows }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -34,6 +34,7 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLay
   import('../src/i18n.js'),
   import('../src/ink/stringWidth.js'),
   import('./lib/term-test.mjs'),
+  import('../src/components/sidePanel/sidebarBrand.js'),
 ])
 const { render, AlternateScreen, Box, Text, useInput } = ui
 const { applySidePanelOpen, applySidePanelPanels, applySidePanelRatio } = prefs
@@ -96,6 +97,7 @@ const channelStub: unknown = {
   lastUsage: { input: 12_000, output: 500, cacheRead: 60_000, cacheWrite: 1_000 },
   tps: 37.4,
   tpsSamples: [{ tps: 30, at: Date.now() }, { tps: 44, at: Date.now() }],
+  backgroundJobs: [], notifications: [], mcpStatus: () => [],
   subscribe() { return () => {} },
   notify() {},
   listWorkspaceRegistry: () => Promise.resolve([]),
@@ -104,7 +106,16 @@ const channelStub: unknown = {
 
 function Harness(): React.ReactNode {
   const sp = useSidePanel({ columns: COLS, fullscreen: true, editorOpen: false })
-  useInput(() => {}, { isActive: true })
+  // Chat owns the host ←/→ panel routing; the fixture mirrors it so the
+  // navigator can be exercised without depending on a second same-cell click.
+  useInput((_input, key) => {
+    if (key.leftArrow !== true && key.rightArrow !== true) return
+    const ids = sp.enabledPanelIds
+    if (ids.length === 0) return
+    const current = Math.max(0, ids.indexOf(sp.activePanelId ?? ''))
+    const delta = key.rightArrow === true ? 1 : -1
+    sp.openPanel(ids[(current + delta + ids.length) % ids.length]!, { focus: true })
+  }, { isActive: true })
   return (
     <SidePanelLayout
       geometry={sp.geometry}
@@ -168,24 +179,35 @@ const app = await render(
 )
 
 try {
-  check('c mount: todo is the active carousel title', await settled(() => has('Todo'), { timeoutMs: 4000 }))
-  check('c mount: inactive panels show their registered icons', (viewportLines(term, ROWS)[0]?.match(/[ⓘ∿]/g) ?? []).length === 2)
+  const barRow = sidebarBrandRows(ROWS)
+  check('c mount: todo is the active navigator title', await settled(() => has('Todo'), { timeoutMs: 4000 }))
+  const bootBar = viewportLines(term, ROWS)[barRow] ?? ''
+  check('c mount: only the active panel icon is shown', bootBar.includes('≡ Todo') && !bootBar.includes('ⓘ') && !bootBar.includes('∿') && bootBar.includes('◀') && bootBar.includes('▶'), bootBar.trim())
   check('c mount: no ⤢ while a fullscreen-less panel is active', !has('⤢'))
 
-  const infoArrow = findText('▶')
-  if (infoArrow !== null) click(infoArrow.col, infoArrow.row)
-  check('c info: right arrow selects the next carousel title', await settled(() => has('Info') && !has('Todo'), { timeoutMs: 4000 }))
+  const clickArrow = (glyph: '◀' | '▶'): boolean => {
+    const cell = findText(glyph)
+    if (cell === null) return false
+    click(cell.col, cell.row)
+    return true
+  }
+  check('c info: right arrow selects the next panel', clickArrow('▶') && await settled(() => has('Info') && !has('Todo'), { timeoutMs: 4000 }))
   // Labels come from i18n so a copy change cannot make this silently vacuous.
   check('c info: session section rendered', await settled(() => has(t('info-section-session')), { timeoutMs: 4000 }))
   check('c info: cache row rendered', has(t('info-row-cache')))
   check('c info: working dir row rendered', has(t('info-row-cwd')))
   check('c info: still no ⤢ (no fullscreen form)', !has('⤢'))
 
-  const row = viewportLines(term, ROWS)[0] ?? ''
-  const trajectoryIcon = { col: row.indexOf('∿', row.indexOf('Info') + 'Info'.length), row: 0 }
-  check('c trajectory: the next panel icon is visible', trajectoryIcon.col > 0, row)
-  if (trajectoryIcon.col > 0) click(trajectoryIcon.col + 1, trajectoryIcon.row)
-  check('c trajectory: clicking its icon selects the panel title', await settled(() => has('Trajectory') && !has('Info'), { timeoutMs: 4000 }), viewportLines(term, ROWS).slice(0, 5).join('|'))
+  // Host keyboard routing (Chat's ←/→) reaches Trajectory from Info.
+  const right = findText('▶')
+  if (right !== null) {
+    click(right.col - 1, right.row)
+    await new Promise(resolve => setTimeout(resolve, 200))
+    console.error('RIGHT-1', JSON.stringify(viewportLines(term, ROWS)[right.row]))
+  }
+  stdin.write('\x1b[C')
+  check('c trajectory: right arrow reaches Trajectory', await settled(() => has('Trajectory') && !has('Info'), { timeoutMs: 4000 }),
+    viewportLines(term, ROWS).slice(0, 6).join('|'))
   check('c trajectory: empty state without a build', await settled(() => has(t('panel-trajectory-empty').slice(0, 24)), { timeoutMs: 4000 }))
   check('c trajectory: ⤢ appears (declares capabilities.fullscreen)', has('⤢'))
 } finally {

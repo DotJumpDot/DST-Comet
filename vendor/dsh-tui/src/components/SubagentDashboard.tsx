@@ -14,6 +14,9 @@ import type { TeamTask, TeamView } from '../adapter/ports/channel-view.js'
 import { isTeamTaskBlocked, teamDashboardModel, teamTaskProgress, type TeamMemberRow } from './teamRoster.js'
 import { isMinimalUiMode } from '../minimalUiMode.js'
 
+/** Stable empty fold for callers that do not clear the Agents tab. */
+const EMPTY_CLEARED: ReadonlySet<string> = new Set()
+
 export interface SubagentDashboardProps {
   subagents: readonly SubagentState[]
   /** Optional cross-session agents, kept separate from this session children. */
@@ -39,6 +42,13 @@ export interface SubagentDashboardProps {
   /** panel 形态：宿主报告焦点/可见性；非 active 时保留状态但收不到键。 */
   focused?: boolean
   visible?: boolean
+  /** DST Comet: ids the Agents tab folded away after the work finished.
+   *  Running/provisioning agents ignore the fold, so live work never hides. */
+  clearedIds?: ReadonlySet<string>
+  /** Show the folded agents again (`c` toggles). */
+  showCleared?: boolean
+  /** Toggle the folded view (`c` in the dashboard / panel). */
+  onToggleCleared?: () => void
 }
 
 /** Accept Ink's Enter flag and the panel dispatcher's normalized alias. */
@@ -143,6 +153,9 @@ export function SubagentDashboard({
   variant = 'default',
   focused = true,
   visible = true,
+  clearedIds = EMPTY_CLEARED,
+  showCleared = false,
+  onToggleCleared,
 }: SubagentDashboardProps): React.ReactNode {
   const panelMode = variant === 'panel'
   // Focus follows the row's key: team mode reorders the rows, and the roster can shrink.
@@ -150,13 +163,30 @@ export function SubagentDashboard({
   const scrollRef = React.useRef<ScrollBoxHandle | null>(null)
   const { rows, columns } = useTerminalSize()
 
+  // DST Comet Agents-tab clear: fold settled agents away once the work is
+  // done. The channel keeps every row; this is only what the panel shows.
+  const memberRunning = (id: string): boolean =>
+    (team?.members ?? []).some(member => member.id === id && member.phase === 'provisioning') ||
+    subagents.some(row => row.agentId === id && (row.status === 'running' || row.status === 'starting'))
+  const isFolded = (id: string): boolean =>
+    !showCleared && clearedIds.has(id) && !memberRunning(id)
+  const visibleSubagents = subagents.filter(row => !isFolded(row.agentId))
+  const visibleTeam = team === undefined
+    ? undefined
+    : { ...team, members: team.members.filter(member => !isFolded(member.id)) }
+  // The footer counts every known id the user folded, including the ones that
+  // are running again (so `c` can hide them once more).
+  const clearedKnown = new Set<string>()
+  for (const row of subagents) if (clearedIds.has(row.agentId)) clearedKnown.add(row.agentId)
+  for (const member of team?.members ?? []) if (clearedIds.has(member.id)) clearedKnown.add(member.id)
+
   // Keep top-level children first when the roster includes nested agents.
   const isNestedSpawn = (row: SubagentState): boolean =>
     row.parentAgentId !== undefined || (row.depth ?? 1) >= 2
-  const nestedRows = subagents.filter(isNestedSpawn)
-  const flatRows = subagents.filter(row => !isNestedSpawn(row))
-  const ordered = nestedRows.length === 0 ? subagents : [...flatRows, ...nestedRows]
-  const model = team === undefined ? undefined : teamDashboardModel(team, subagents, sessionId)
+  const nestedRows = visibleSubagents.filter(isNestedSpawn)
+  const flatRows = visibleSubagents.filter(row => !isNestedSpawn(row))
+  const ordered = nestedRows.length === 0 ? visibleSubagents : [...flatRows, ...nestedRows]
+  const model = visibleTeam === undefined ? undefined : teamDashboardModel(visibleTeam, visibleSubagents, sessionId)
   const others = new Set(model?.others)
   const nested = nestedRows.length
   const rowEntry = (subagent: SubagentState): DashboardEntry =>
@@ -217,6 +247,13 @@ export function SubagentDashboard({
       if (selected) onOpenView(selected.agentId)
       return
     }
+
+    // c = show/hide the finished agents folded away by DST Comet.
+    if (input.toLowerCase() === 'c' && onToggleCleared !== undefined) {
+      event.stopImmediatePropagation()
+      onToggleCleared()
+      return
+    }
     
     // Consume all input while dashboard is open
     event.stopImmediatePropagation()
@@ -247,6 +284,11 @@ export function SubagentDashboard({
     if (input.toLowerCase() === 'v' && onOpenView !== undefined) {
       const selected = entries[focusIndex]?.subagent
       if (selected !== undefined) onOpenView(selected.agentId)
+      return true
+    }
+
+    if (input.toLowerCase() === 'c' && onToggleCleared !== undefined) {
+      onToggleCleared()
       return true
     }
 
@@ -340,7 +382,7 @@ export function SubagentDashboard({
               <Text dimColor wrap="truncate-end">{'  ◆ ' + t(model.viewedFromLead ? 'team-lead-row' : 'team-lead-row-peer')}</Text>
             </>
           )}
-          {model === undefined && subagents.length === 0 ? (
+          {entries.length === 0 ? (
             <Box flexDirection="column" alignItems="center" marginTop={Math.max(2, Math.floor((rows - 16) / 3))}>
               <Text dimColor>{'○'}</Text>
               <Text dimColor>{t('subagent-none')}</Text>
@@ -392,9 +434,25 @@ export function SubagentDashboard({
               </Box>
             ))
           )}
-          {team !== undefined && <TeamTaskBoard tasks={team.tasks} />}
+          {visibleTeam !== undefined && <TeamTaskBoard tasks={visibleTeam.tasks} />}
         </ScrollBox>
       </Box>
+
+      {/* DST Comet: finished agents fold away when the work is done. One line
+          keeps the count and `c` (or a click) brings them back. */}
+      {clearedKnown.size > 0 && (
+        <Box
+          flexDirection="row"
+          marginTop={1}
+          paddingLeft={panelMode ? 1 : 0}
+          onClick={onToggleCleared}
+        >
+          <Text dimColor wrap="truncate-end">
+            {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
+            {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
+          </Text>
+        </Box>
+      )}
 
       {/* Other-session agents are separate from this session children. */}
       {peers !== undefined && (!panelMode || peers.length > 0) && (

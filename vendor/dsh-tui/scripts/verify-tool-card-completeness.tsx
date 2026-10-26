@@ -78,6 +78,10 @@ async function paint(tool: Record<string, unknown>, opts: { verbose?: boolean, s
       tool: { ...base, ...tool },
       marginTopOnTurn: false,
       verbose: opts.verbose ?? false,
+      // This script locks the BODY contract (fold hints, exit codes, window
+      // disclosures); DST Comet's default one-line cards intentionally hide
+      // the body until expanded, so pin the expanded-preview mode here.
+      oneLineToolCards: false,
       ...(opts.sourceFolded === undefined ? {} : { sourceFolded: opts.sourceFolded }),
     }),
     { stdout: rig.stdout, debug: true, exitOnCtrlC: false, patchConsole: false },

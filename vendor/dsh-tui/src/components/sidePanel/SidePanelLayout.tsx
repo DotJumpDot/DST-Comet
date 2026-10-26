@@ -46,6 +46,7 @@ import { SurfaceEdgesContext, useSurfaceEdges } from '../SurfaceEdges.js'
 import type { DragEvent } from '../../ink/events/drag-event.js'
 import type { SidePanelFocus } from './useSidePanel.js'
 import type { SidePanelSplit } from './dimensions.js'
+import { sidebarBrandRows } from './sidebarBrand.js'
 
 export interface SidePanelLayoutProps {
   readonly geometry: SidePanelSplit | null
@@ -181,13 +182,14 @@ export function SidePanelLayout({
       </SurfaceEdgesContext.Provider>
       {split && (
         <>
-          {/* Junction contract: SidePanelColumn keeps its PanelBar on row 0,
-              a rule on row 1, and the hint + its rule as the last two rows, so
-              the seam tees at exactly 1 and rows-2. */}
+          {/* Junction contract: SidePanelColumn keeps its brand header on rows
+              0..SIDEBAR_BRAND_ROWS-1, the PanelBar next, a rule under it, and
+              the hint + its rule as the last two rows, so the seam tees at the
+              panel bar's rule and at rows-2. */}
           <DividerColumn
             focused={focus === 'panel'}
             rows={rows}
-            junctionRows={[1, Math.max(1, rows - 2)]}
+            junctionRows={[sidebarBrandRows(rows, panelColumns) + 1, Math.max(1, rows - 2)]}
             chatColumns={geometry.chat}
             onResize={onResize}
           />

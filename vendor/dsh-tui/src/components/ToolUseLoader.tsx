@@ -4,60 +4,33 @@ import { Text } from '../ui.js'
 import { useBlink } from '../hooks/useBlink.js'
 import { BLACK_CIRCLE, BULLET, MULTIPLICATION_X } from '../terminal-utils/figures.js'
 import type { Theme } from '../theme.js'
+import { toolToneColor, toolToneFamily } from './messages/toolTone.js'
 
 type Props = {
   isError: boolean
   isUnresolved: boolean
   shouldAnimate: boolean
-  /** Raw tool id (bash/read/edit/…) — picks the category color for a settled dot. */
+  /** Raw tool id (bash/read/grep/…) — picks the family colour for a settled dot. */
   toolName?: string
-}
-
-type ToolCategory = 'exec' | 'read' | 'write' | 'web' | 'task' | 'default'
-
-const CATEGORY_BY_TOOL: Record<string, ToolCategory> = {
-  bash: 'exec',
-  powershell: 'exec',
-  pwsh: 'exec',
-  read: 'read',
-  grep: 'read',
-  glob: 'read',
-  search: 'read',
-  file_search: 'read',
-  edit: 'write',
-  write: 'write',
-  str_replace_editor: 'write',
-  multiedit: 'write',
-  web_search: 'web',
-  web_fetch: 'web',
-  browser: 'web',
-  subagent: 'task',
-  task: 'task',
-  job: 'task',
-  workflow: 'task',
-}
-
-const CATEGORY_TOKEN: Record<ToolCategory, keyof Theme> = {
-  exec: 'toolDotExec',
-  read: 'toolDotRead',
-  write: 'toolDotWrite',
-  web: 'toolDotWeb',
-  task: 'toolDotTask',
-  default: 'success',
+  /** Backend-declared colour family (mutate/exec/other), when the view has one. */
+  toolCategory?: 'mutate' | 'exec' | 'other'
 }
 
 /**
  * The status dot on tool-call rows. State shapes the glyph, the tool
- * category picks the settled color: blinking `●` while running (attention),
- * a smaller category-colored `•` once settled (quiet), and a red `✗` on
- * error — a glyph swap, not just a hue, so failures read at a glance
- * (Codex-style category colors; every color is a theme token).
+ * family picks the settled color (DST Comet: Read cyan, Grep violet, Pwsh
+ * green, MCP rose — the same family tokens the card title and wash use):
+ * blinking `●` while running (attention), a smaller family-colored `•` once
+ * settled (quiet), and a red `✗` on error — a glyph swap, not just a hue, so
+ * failures read at a glance (Codex-style category colors; every color is a
+ * theme token).
  */
 export function ToolUseLoader({
   isError,
   isUnresolved,
   shouldAnimate,
   toolName,
+  toolCategory,
 }: Props): React.ReactNode {
   const [ref, isBlinking] = useBlink(shouldAnimate)
   if (isError) {
@@ -67,8 +40,8 @@ export function ToolUseLoader({
       </Box>
     )
   }
-  const category = CATEGORY_BY_TOOL[toolName ?? ''] ?? 'default'
-  const color = isUnresolved ? undefined : CATEGORY_TOKEN[category]
+  const token: keyof Theme = toolToneColor(toolToneFamily(toolName ?? '', toolCategory))
+  const color = isUnresolved ? undefined : token
   const char = shouldAnimate ? (isBlinking ? BLACK_CIRCLE : ' ') : BULLET
 
   return (

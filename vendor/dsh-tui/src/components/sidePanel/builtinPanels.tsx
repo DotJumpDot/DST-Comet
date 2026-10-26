@@ -18,6 +18,14 @@ import { agentViewStore } from './agentViewStore.js'
 import { subagentFailureRead, subagentFailureScope, useUnreadSubagentFailures } from './subagentFailureRead.js'
 import { agentComposeTargetOf, type AgentComposeTarget } from '../messages/agentTeam.js'
 import type { PanelProps } from './types.js'
+import {
+  clearAgents,
+  getAgentsCleared,
+  getAgentsClearedVisible,
+  scopeAgentsCleared,
+  subscribeAgentsCleared,
+  toggleAgentsClearedVisible,
+} from './agentsPanelClear.js'
 
 /** todo：GoalTodoPanel 的 panel variant（同一份 store，不重写业务）。 */
 function TodoPanelAdapter({ width, height, focused, visible }: PanelProps): React.ReactNode {
@@ -162,6 +170,34 @@ function AgentsPanelAdapter({ focused, visible }: PanelProps): React.ReactNode {
   const unreadFailures = useUnreadSubagentFailures(channel)
   const failureScope = subagentFailureScope(channel)
   const version = channel.version
+  // DST Comet: finished agents fold out of the panel once the work is done.
+  const cleared = React.useSyncExternalStore(subscribeAgentsCleared, getAgentsCleared)
+  const showCleared = React.useSyncExternalStore(subscribeAgentsCleared, getAgentsClearedVisible)
+  React.useEffect(() => { scopeAgentsCleared(channel.sessionId) }, [channel.sessionId])
+  React.useEffect(() => {
+    const team = channel.team
+    const busy = channel.status === 'running' ||
+      subagents.some(row => row.status === 'running' || row.status === 'starting') ||
+      (team?.members ?? []).some(member => member.phase === 'provisioning')
+    if (busy) return
+    const ids = new Set<string>()
+    for (const row of subagents) {
+      if (row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled' || row.status === 'unknown') {
+        ids.add(row.agentId)
+      }
+    }
+    // A team's idle members are "done" only when its task board is finished:
+    // until then they are standing by for the next assignment.
+    const tasksDone = team !== undefined && team.tasks.length > 0 &&
+      team.tasks.every(task => task.status === 'completed')
+    if (tasksDone) {
+      for (const member of team.members) if (member.role === 'teammate') ids.add(member.id)
+    }
+    if (ids.size === 0) return
+    // Give the human a beat to read the finished roster before it folds.
+    const timer = setTimeout(() => clearAgents(ids), 4000)
+    return () => clearTimeout(timer)
+  }, [version, channel.sessionId, channel.status])
   const [route, setRoute] = React.useState<AgentsRoute>(lastAgentsRoute)
   React.useEffect(() => { lastAgentsRoute = route }, [route])
   // subagentControl.message 缺失 = 没有 composer 和消息流。可选链是给没有
@@ -235,6 +271,9 @@ function AgentsPanelAdapter({ focused, visible }: PanelProps): React.ReactNode {
       onSelect={(id: string) => setRoute({ detail: id })}
       onOpenView={(id: string) => agentViewStore.request(id, 'agents-dashboard', true)}
       messages={messageControl?.messages()}
+      clearedIds={cleared}
+      showCleared={showCleared}
+      onToggleCleared={toggleAgentsClearedVisible}
     />
   )
 }

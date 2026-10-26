@@ -26,6 +26,10 @@ const PALETTE: Record<string, Rgb | undefined> = {
   Z: [128, 128, 128],
 }
 
+/** The sprite palette, exported for the sidebar's miniature mascot (the same
+ *  hand-drawn whale, sampled down instead of rendered at 40×13). */
+export const WHALE_PALETTE: Readonly<Record<string, Rgb | undefined>> = PALETTE
+
 const fg = (rgb: Rgb): string => foregroundOpenCode(`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`)
 const bg = (rgb: Rgb): string => backgroundOpenCode(`rgb(${rgb[0]},${rgb[1]},${rgb[2]})`)
 const RESET = '\x1b[0m'
