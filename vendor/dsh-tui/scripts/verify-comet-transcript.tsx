@@ -3,7 +3,8 @@
  *
  * Locks the user-facing contract:
  *  1. a settled answer that follows tool work is lifted ABOVE the turn's
- *     tool cards and folded to one success line (`✓ Final summary`);
+ *     tool cards and lifted ALWAYS EXPANDED (`✓ Final summary` header +
+*     the full Markdown body — the answer never folds);
  *  2. the full body is hidden until expanded (Ctrl+O here) and comes back
  *     after collapsing;
  *  3. while a tool of the turn is still running, the answer stays at the
@@ -132,13 +133,13 @@ const inst = await render(
   check('tone: the wash is a truecolor blend', washes.every(value => typeof value === 'string' && value.startsWith('rgb(')))
 }
 
-// 1. Final summary is above the tool cards and folded to one line.
+// 1. Final summary is above the tool cards and always expanded.
 check('final summary renders', await settled(() => screen().includes('Final summary')))
 const summaryRow = rowOf('Final summary')
 const readRow = rowOf('Read')
 check('final summary sits above the first tool card', summaryRow >= 0 && readRow > summaryRow, `summary=${summaryRow} read=${readRow}`)
-check('final summary preview keeps the first line', screen().includes('All done.'))
-check('collapsed final summary hides later body lines', !screen().includes('SECOND-LINE-ONLY'))
+check('final summary body keeps the first line', screen().includes('All done.'))
+check('final summary renders its later body lines', screen().includes('SECOND-LINE-ONLY'))
 
 // 2. One-line Read / Grep / Pwsh / MCP cards: header visible, body hidden.
 check('Read card header renders', readRow >= 0)
@@ -162,15 +163,15 @@ check('one-line Pwsh header flattens the command newline', (() => {
 check('collapsed one-line cards expose the disclosure hint', (screen().match(/▸/g) ?? []).length >= 4,
   'arrows=' + String((screen().match(/▸/g) ?? []).length))
 
-// 3. Ctrl+O expands everything (the summary body and the tool bodies).
+// 3. Ctrl+O expands the tool bodies; the summary body is expanded regardless.
 stdin.write('\x0f')
 await sleep(120)
-check('Ctrl+O expands the final summary body', await settled(() => screen().includes('SECOND-LINE-ONLY')))
 check('Ctrl+O expands the Read card body', await settled(() => screen().includes('READ-BODY-MARKER')))
 check('Ctrl+O expands the Pwsh card body', await settled(() => screen().includes('PWSH-BODY-MARKER')))
 stdin.write('\x0f')
 await sleep(120)
-check('Ctrl+O again collapses the summary body', await settled(() => !screen().includes('SECOND-LINE-ONLY')))
+check('Ctrl+O again collapses the tool bodies', await settled(() => !screen().includes('READ-BODY-MARKER')))
+check('final summary stays expanded across the toggle', screen().includes('SECOND-LINE-ONLY'))
 
 // 4. A running tool holds the answer at the bottom; settling promotes it.
 const runningTool: any = { ...pwshTool, callId: 'call-run', status: 'running', durationMs: undefined, resultView: undefined }
@@ -188,7 +189,7 @@ runningTool.durationMs = 1000
 channel.emit()
 check('settling the tool lifts the second answer', await settled(() => (screen().match(/Final summary/g) ?? []).length === 2),
   'count=' + String((screen().match(/Final summary/g) ?? []).length))
-check('lifted second summary hides its later line', !screen().includes('RUNNING-SECOND-LINE'))
+check('lifted second summary shows its later line', screen().includes('RUNNING-SECOND-LINE'))
 
 // 5. While the agent is still running, the newest turn's answer stays at the
 // bottom; going idle promotes it (a mid-turn step must not flicker up).

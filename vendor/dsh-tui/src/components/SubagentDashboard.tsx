@@ -13,6 +13,8 @@ import type { AgentMessageView, AgentIdentity } from './messages/agentTeam.js'
 import type { TeamTask, TeamView } from '../adapter/ports/channel-view.js'
 import { isTeamTaskBlocked, teamDashboardModel, teamTaskProgress, type TeamMemberRow } from './teamRoster.js'
 import { isMinimalUiMode } from '../minimalUiMode.js'
+import { stringWidth } from '../ink/stringWidth.js'
+import { TooltipTarget } from './Tooltip.js'
 
 /** Stable empty fold for callers that do not clear the Agents tab. */
 const EMPTY_CLEARED: ReadonlySet<string> = new Set()
@@ -109,9 +111,17 @@ const TASK_GLYPH: Record<TeamTask['status'], { readonly glyph: string; readonly 
   completed: { glyph: '●', color: 'success' },
 }
 
-/** The team's shared task board, read-only; narrow widths drop the owner. */
+/** The team's shared task board, read-only; narrow widths drop the owner.
+ *  A subject wider than the row budget is truncated, so it carries a hover
+ *  tooltip with the full text (DST Comet: unreadable tasks on a narrow
+ *  panel were the report); fully visible subjects stay tooltip-free. */
 function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const { columns } = useTerminalSize()
+  // Row chrome: padding 1 + glyph column 2 + one cell of separation. The
+  // owner/blocked/warning tail is variable; the slack keeps the gate honest
+  // (a tooltip that repeats visible text is noise, one that misses a cut
+  // subject defeats the ask — under-reporting the budget errs visible).
+  const subjectBudget = Math.max(8, columns - 6)
   return (
     <Box flexDirection="column" marginTop={1}>
       <Text dimColor wrap="truncate-end">{t('team-tasks-title', teamTaskProgress(tasks))}</Text>
@@ -119,9 +129,11 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
       {tasks.map(task => (
         <Box key={task.id} flexDirection="row" paddingLeft={1}>
           <Box flexShrink={0} marginRight={1}><Text color={TASK_GLYPH[task.status].color}>{TASK_GLYPH[task.status].glyph}</Text></Box>
-          <Box flexGrow={1} flexShrink={1} overflow="hidden">
-            <Text dimColor={task.status === 'completed'} wrap="truncate-end">{task.subject}</Text>
-          </Box>
+          <TooltipTarget content={() => stringWidth(task.subject) > subjectBudget ? task.subject : ''}>
+            <Box flexGrow={1} flexShrink={1} overflow="hidden">
+              <Text dimColor={task.status === 'completed'} wrap="truncate-end">{task.subject}</Text>
+            </Box>
+          </TooltipTarget>
           {columns >= 40 && task.ownerName !== undefined && (
             <Box flexShrink={0} marginLeft={1}><Text dimColor>{'@' + task.ownerName}</Text></Box>
           )}

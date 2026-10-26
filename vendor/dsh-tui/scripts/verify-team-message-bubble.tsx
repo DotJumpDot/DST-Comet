@@ -79,7 +79,7 @@ async function frame(cols: number, sender: string, text: string, hosted = false,
 
 try {
   const wide = await frame(80, 'reviewer', 'diff ok\nsecond line of the report')
-  check('sender line carries mark, name and tag', wide[0] === '✉ reviewer · team message', JSON.stringify(wide[0]))
+  check('sender line carries mark, name, direction and tag', wide[0] === '✉ reviewer → Lead · team message', JSON.stringify(wide[0]))
   check('body lines hang under the sender', wide[1] === '  diff ok' && wide[2] === '  second line of the report', JSON.stringify(wide.slice(1)))
 
   const narrow = await frame(24, '审阅者', '这是一条需要在窄终端里换行的团队消息内容')

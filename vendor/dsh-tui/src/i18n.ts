@@ -157,6 +157,11 @@ const dict = {
   'mentions-missing': { zh: '未找到引用: {{paths}}', en: 'References not found: {{paths}}' },
   // Agent Teams: the tag after the sender of a peer message bubble.
   'team-message-label': { zh: '团队消息', en: 'team message' },
+  // Agent Teams: the Team Lead's display name — the fixed endpoint of every
+  // relay direction label (`Lead → <teammate>` outbound, `<sender> → Lead`
+  // inbound) so a Mother watcher sees who talks to whom. Same word in both
+  // languages: it is the engine's literal lead name.
+  'team-lead-name': { zh: 'Lead', en: 'Lead' },
   // T06 (PR-B · AC-5): transcript indicator above a user bubble whose send
   // consumed the live IDE selection. The ⧉ glyph lives in MessageList, not here.
   'selection-attached': {
@@ -1717,7 +1722,6 @@ const dict = {
   // the top of the workflow as a one-line, expandable summary.
   'final-summary-title': { zh: '最终总结', en: 'Final summary' },
   'final-summary-lines': { zh: '{{n}} 行', en: '{{n}} lines' },
-  'final-summary-lines-short': { zh: '行', en: 'lines' },
   // Thinking reported only as an estimated token count (no thinking text).
   'thinking-tokens-live': { zh: '思考中 · ~{{n}} tokens', en: 'Thinking · ~{{n}} tokens' },
   'thinking-tokens-done': { zh: '已思考 · ~{{n}} tokens', en: 'Thought · ~{{n}} tokens' },

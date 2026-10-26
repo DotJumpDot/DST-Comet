@@ -144,12 +144,17 @@ function jsonArgsLanguage(args: string): 'json' | undefined {
  *  dump this card replaces is SendMessage's alone — a second message-style
  *  card for Task would duplicate that surface. */
 const SEND_MESSAGE_TOOL = 'SendMessage'
+/** The Agent Teams relay tool (DST Comet): args `{target, message}`. Without
+ *  this recognition the card falls to the generic one-line shape, whose
+ *  click never discloses the message the Lead actually sent. */
+const TEAM_SEND_MESSAGE_TOOL = 'send_message'
 
 /** What the SendMessage card needs from the call's args: the addressed
  *  target (pin.name, else the `to` short id), the body, the summary and
  *  the resume mark. Redundant transport fields (to/type/recipient/content)
  *  never render — they live in the raw layer only. */
 interface SendMessageCard {
+  readonly sender: string
   readonly target: string
   readonly resuming: boolean
   readonly text: string
@@ -161,19 +166,22 @@ const recOf = (value: unknown): Record<string, unknown> | undefined =>
 const strOf = (value: unknown): string | undefined =>
   typeof value === 'string' && value !== '' ? value : undefined
 
-/** Parse one SendMessage call; undefined when the args are not the
- *  recognizable relay shape (then the generic card stands). */
+/** Parse one SendMessage / send_message call; undefined when the args are
+ *  not the recognizable relay shape (then the generic card stands). */
 function sendMessageCardOf(tool: ToolRow): SendMessageCard | undefined {
-  if (tool.name !== SEND_MESSAGE_TOOL) return undefined
+  if (tool.name !== SEND_MESSAGE_TOOL && tool.name !== TEAM_SEND_MESSAGE_TOOL) return undefined
   const args = recOf(parseJsonArgs(tool.argsFull ?? tool.argsText))
   if (args === undefined) return undefined
-  const to = strOf(args.to) ?? strOf(args.recipient)
+  const to = strOf(args.to) ?? strOf(args.recipient) ?? strOf(args.target)
   const text = strOf(args.message) ?? strOf(args.text)
   if (to === undefined || text === undefined) return undefined
   const pin = recOf(args.pin)
   const pinName = strOf(pin?.name)
   const target = pinName ?? (to.length > 8 ? `${to.slice(0, 8)}…` : to)
   return {
+    // The team relay renders as `Lead → <target>` so the Mother transcript
+    // shows WHO talks to WHOM; the CC relay keeps its tool-name header.
+    sender: tool.name === TEAM_SEND_MESSAGE_TOOL ? t('team-lead-name') : displayName(tool.name),
     target,
     resuming: args.resuming === true || args.resume === true,
     text,
@@ -187,6 +195,9 @@ const SEND_MESSAGE_EXPLICIT: Readonly<Record<string, AgentMessageState>> = Objec
   held: 'held',
   refused: 'refused',
   expired: 'expired',
+  // The Agent Teams relay settles with `{sent: true}` — an explicit
+  // acceptance fact, not a guessed delivery.
+  sent: 'delivered',
 })
 
 /** The settled state of one SendMessage card — the UI-side mirror of
@@ -780,10 +791,10 @@ export function AssistantToolUseMessage({
     : undefined
   // presentResult may omit a title (terminal results carry output, not a
   // command) — then the call view's title stands. The SendMessage card owns
-  // its header outright: `SendMessage → <target>` (+ the resume mark), the
-  // raw args parens stay out of the header.
+  // its header outright: `<sender> → <target>` (+ the resume mark; the team
+  // relay's sender is `Lead`), the raw args parens stay out of the header.
   const headerTitle = sendMessage !== undefined
-    ? `${displayName(tool.name)} → ${sendMessage.target}${sendMessage.resuming ? ` · ${t('send-message-card-resuming')}` : ''}`
+    ? `${sendMessage.sender} → ${sendMessage.target}${sendMessage.resuming ? ` · ${t('send-message-card-resuming')}` : ''}`
     : tool.resultView?.title ?? tool.callView?.title
   const headerIsTerminal = view?.card === 'terminal'
   // Fold the terminal header: multi-line command script (setting-gated) plus

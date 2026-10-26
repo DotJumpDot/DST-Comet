@@ -123,15 +123,19 @@ function teamSenderOf(row: ChatRow): string | undefined {
  */
 function promoteFinalSummaries(rows: ChatRow[], agentRunning: boolean): ChatRow[] {
   let moved: ChatRow[] | null = null
-  for (let start = 0; start < rows.length; start++) {
-    if (!isTurnRow(rows[start]!)) continue
+  // A scrolled-off leading user message must not strand its turn: a window
+  // that opens mid-turn (tool cards at the top, no user row in view) still
+  // lifts its final answer from a synthetic boundary before rows[0].
+  const starts: number[] = []
+  if (rows.length > 0 && !isTurnRow(rows[0]!)) starts.push(-1)
+  for (let at = 0; at < rows.length; at++) {
+    if (isTurnRow(rows[at]!)) starts.push(at)
+  }
+  for (const start of starts) {
     let end = start + 1
     while (end < rows.length && !isTurnRow(rows[end]!)) end++
     const lastTurn = end >= rows.length
-    if (lastTurn && agentRunning) {
-      start = end - 1
-      continue
-    }
+    if (lastTurn && agentRunning) continue
     let lastTool = -1
     let lastAssistant = -1
     let runningTool = false
@@ -154,7 +158,6 @@ function promoteFinalSummaries(rows: ChatRow[], agentRunning: boolean): ChatRow[
       moved.splice(lastAssistant, 1)
       moved.splice(start + 1, 0, summary)
     }
-    start = end - 1
   }
   return moved ?? rows
 }
@@ -2009,8 +2012,8 @@ function TranscriptRow({
       )
     case 'assistant':
       // DST Comet final-summary lift: the settled answer of a tool-using turn
-      // renders as one collapsible line above the workflow. `expanded` is
-      // Ctrl+O, `isExpanded` is this row's click state — either opens it.
+      // renders above the workflow ALWAYS EXPANDED — the answer is the
+      // deliverable; only tool cards and thinking blocks fold.
       if (finalSummary) {
         return (
           <Box
@@ -2022,8 +2025,6 @@ function TranscriptRow({
           >
             <FinalSummaryRow
               text={text}
-              expanded={expanded || isExpanded}
-              onToggle={() => { onToggleRow(rowId) }}
               isSelected={isSelected}
             />
           </Box>

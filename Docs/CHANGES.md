@@ -4,7 +4,25 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
-## 2026-10-26 — comet transcript & sidebar pass (tool tones, final summary, mascot)
+## 2026-10-26 — mother-view clarity pass (live-run feedback)
+
+| File | Why |
+|---|---|
+| `src/components/messages/AssistantToolUseMessage.tsx` | the Agent Teams `send_message` relay joins the structured card (was a generic one-line card whose click never disclosed the sent prompt): header is now `<sender> → <target>` (Lead for the team relay), `{sent: true}` counts as delivered, full text unfolds on click |
+| `src/components/messages/TeamMessageBubble.tsx` | inbound peer bubbles show direction too: `✉ <sender> → Lead · team message` |
+| `src/i18n.ts` | `team-lead-name` key (both languages: the engine's literal lead name) |
+| `src/components/messages/FinalSummaryRow.tsx` | final summary renders ALWAYS EXPANDED (header + full Markdown body) — the answer is the deliverable, only tool cards and thinking fold |
+| `src/components/MessageList.tsx` | summary call site drops the fold props; `promoteFinalSummaries` also lifts turns whose leading user row scrolled off the window (long sessions showed the answer glued under the last thinking block) |
+| `src/components/messages/AssistantThinkingMessage.tsx` | settled thinking headers drop the repeated `(ctrl+o to expand)` suffix (hover/click still disclose) |
+| `src/components/SubagentDashboard.tsx` | Agents-tab task rows carry a hover tooltip with the full subject when it is truncated (narrow panels) |
+| `scripts/verify-comet-transcript.tsx` | pins the always-expanded summary + tool-only Ctrl+O toggle |
+| `scripts/verify-team-message-bubble.tsx` | pins the `→ Lead` direction line |
+
+Engine fork (code-only this pass, deliberately NOT installed): `engine/`
+workspace forks the three Agent Teams packages per
+`Advice/agent-team-hunt-run-2026-10-26.md` — see `engine/README.md`.
+
+## 2026-10-26 — one-line card hardening + tool background off (user preset)
 
 | File | Why |
 |---|---|

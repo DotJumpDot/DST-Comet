@@ -13,7 +13,6 @@ import { BRAND, ICE } from '../shimmer.js'
 import { interpolateColor } from '../Spinner/spinnerUtils.js'
 import { isMinimalUiMode } from '../../minimalUiMode.js'
 import type { ClickEvent } from '../../ink/events/click-event.js'
-import { primaryComboString } from '../../utils/keymap.js'
 
 /** Preview body rows — a FIXED row count (kimicode-style constant-height
  *  ticker). Ink's truncate slices the whole string across newlines as one
@@ -55,8 +54,8 @@ type Props = {
 }
 
 /**
- * Thinking block: settled rows fold to `⚓ Thinking` plus the localized
- * ctrl+o expand hint (hint-expand-ctrl-o);
+ * Thinking block: settled rows fold to the one-line `Thinking` header (the
+ * old hint-expand-ctrl-o suffix was dropped as repeated noise);
  * streaming rows switch between a three-line preview and the full reasoning
  * text on click. The live leading mark is a rotating braille spinner
  * (`⠋⠙⠹…`, Kimi Code style), settling back to the static anchor (`⚓`). When
@@ -119,7 +118,10 @@ export function AssistantThinkingMessage({
   // header's brand→ice ladder, one sine period per ~7 frames (≈0.56s) —
   // lively without strobing. The minimal UI drops the color (plain glyph);
   // settled always keeps the plain dim anchor.
-  const label = `${t('thinking-label')}${duration}${linesStat}${streaming ? '…' : ` ${t('hint-expand-ctrl-o', { key: primaryComboString('transcript') })}`}`
+  // DST Comet: the settled header drops the expand-key hint suffix — it
+  // repeated on EVERY thinking block and read as noise; hover brightening and
+  // the row click still disclose the interaction.
+  const label = `${t('thinking-label')}${duration}${linesStat}${streaming ? '…' : ''}`
   const minimalUi = isMinimalUiMode()
   const pulse = (Math.sin(frame * 0.9) + 1) / 2
   const pulseColor = interpolateColor(BRAND, ICE, pulse)

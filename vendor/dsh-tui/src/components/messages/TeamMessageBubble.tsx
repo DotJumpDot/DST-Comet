@@ -31,7 +31,8 @@ export function TeamMessageBubble({ sender, text, marginTopOnTurn, isSelected = 
       paddingRight={1}
     >
       <Text color="toolDotTask" wrap="truncate-end">
-        {MARK}<Text bold>{sender}</Text><Text dimColor>{` · ${t('team-message-label')}`}</Text>
+        {MARK}<Text bold>{sender}</Text>
+        <Text dimColor>{` → ${t('team-lead-name')} · ${t('team-message-label')}`}</Text>
       </Text>
       <Box flexDirection="row">
         <Box width={stringWidth(MARK)} flexShrink={0} />
