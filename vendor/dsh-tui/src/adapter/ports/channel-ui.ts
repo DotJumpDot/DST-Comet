@@ -1,6 +1,6 @@
 /** Host-owned in-process Channel contract. No runtime or upstream imports. */
 import type { ChatRow, AgentStatus, TokenUsage, TurnUsageSummary, TurnOutcome, SessionCostByModel, SubagentCostEntry, NotificationItem, ChannelGoal, TodoPanelItem, LoadedContext, PendingMessage, ChannelSceneMetadata, SubagentState, SubagentControl, BackgroundJobState, JobControl, StagedImageInput, StagedImageHandle, ComposerImageRef, ComposerSubmission, ExternalCommandOutcome, TranscriptImage, ResumeResult, EffortOption, PermissionPresetSnapshot, PresetOption, LlmModelInfo, LlmProviderInfo, SkillInfo, CredentialStatus, AgentViewRow, AgentViewDispatchResult, BackgroundResult, RawTrajEvent, TrajectoryLane, TrajectorySource, ChannelSelection, AttachedContext, CompactionStatus, ContextOccupancy, ContextBreakdown, TeamView, ChannelCapabilities, ChannelCostReport, ChannelRateLimit, ChannelSessionRef, BackendModeOption, BackendChannelOption, BackendChannelInput } from './channel-view.js'
-import type { SpinnerMode, ToolBackground, ScrollGutterMode, PageMarginSetting, StatusBarConfig, SessionModeSpec, SplashFontSetting, JobGroupFoldMode, BrandSetting } from './channel-display.js'
+import type { SpinnerMode, ToolBackground, ScrollGutterMode, PageMarginSetting, StatusBarConfig, SessionModeSpec, SplashFontSetting, JobGroupFoldMode, BrandSetting , SidebarLogoPosition} from './channel-display.js'
 import type { LocalCommand, CommandCompletion, BalanceResult, FileCandidate, RecapOutcome } from './channel-catalog.js'
 import type { AgentCapabilities } from './channel-capabilities.js'
 import type { TuiRewindMode, SessionTreeData, SessionSummary, PreviewEntry, ForeignSource, ForeignSessionRow, ForeignImportOutcome } from './channel-session.js'
@@ -270,6 +270,13 @@ export interface ChannelUi {
    *  render their header line only — no preview body. Click / Ctrl+O
    *  expands. Error bodies and diffs keep their collapsed previews. */
   readonly oneLineToolCards: boolean
+  /** Sidebar mascot placement (DST Comet, settings
+   *  `dsh-tui.sidebarLogoPosition`; `top` by default): `top` rides beside
+   *  the DST·Comet wordmark in the brand header; `bottom` centers the
+   *  mascot at the bottom of the panel column above the hint row. The
+   *  mascot variant itself (whale girl / whale / none) stays a click-cycle
+   *  preference (`~/.dsh-tui/sidebar-logo.json`). */
+  readonly sidebarLogoPosition: SidebarLogoPosition
   /** Turn-usage ledger row in the transcript (settings `dsh-tui.turnUsageRow`;
    *  off by default): the quiet right-aligned line that closes each turn.
    *  Display only: the ledger itself is always collected for `turnUsage`,
@@ -889,6 +896,7 @@ export interface ChannelUi {
   setPageMargin(setting: PageMarginSetting): void
   setFoldTerminalCommand(enabled: boolean): void
   setOneLineToolCards(enabled: boolean): void
+  setSidebarLogoPosition(position: SidebarLogoPosition): void
   setTurnUsageRow(enabled: boolean): void
   setPromptSessionLabel(enabled: boolean): void
   setExpandEditor(enabled: boolean): void

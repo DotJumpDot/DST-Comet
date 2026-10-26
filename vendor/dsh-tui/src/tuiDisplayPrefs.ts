@@ -1,5 +1,5 @@
-import type { ToolBackground, ScrollGutterMode, PageMarginSetting, PageMarginMode, PageMarginSpec, StatusBarConfig, JobGroupFoldMode } from './adapter/ports/channel-display.js'
-export type { ToolBackground, ScrollGutterMode, PageMarginSetting, PageMarginMode, PageMarginSpec, StatusBarConfig, JobGroupFoldMode } from './adapter/ports/channel-display.js'
+import type { ToolBackground, ScrollGutterMode, PageMarginSetting, PageMarginMode, PageMarginSpec, StatusBarConfig, JobGroupFoldMode, SidebarLogoPosition } from './adapter/ports/channel-display.js'
+export type { ToolBackground, ScrollGutterMode, PageMarginSetting, PageMarginMode, PageMarginSpec, StatusBarConfig, JobGroupFoldMode, SidebarLogoPosition } from './adapter/ports/channel-display.js'
 
 /** Where a plugin footer field joins the status row, in the list order the
  *  user's `statusBar.pluginFieldsOrder` groups map onto by index. Kept
@@ -51,6 +51,7 @@ export const DEFAULT_STATUS_BAR: Readonly<StatusBarConfig> = Object.freeze({
 })
 
 const TOOL_BACKGROUNDS = new Set<ToolBackground>(['none', 'subtle', 'strong'])
+const SIDEBAR_LOGO_POSITIONS = new Set<SidebarLogoPosition>(['top', 'bottom'])
 const JOB_GROUP_FOLDS = new Set<JobGroupFoldMode>(['auto', 'always', 'never'])
 const SCROLL_GUTTERS = new Set<ScrollGutterMode>(['timeline', 'scrollbar', 'hidden'])
 
@@ -173,6 +174,13 @@ export function normalizeToolBackground(value: unknown): ToolBackground {
   return typeof value === 'string' && TOOL_BACKGROUNDS.has(value as ToolBackground)
     ? value as ToolBackground
     : 'none'
+}
+
+/** Same normalize contract as toolBackground; the header placement is the default. */
+export function normalizeSidebarLogoPosition(value: unknown): SidebarLogoPosition {
+  return typeof value === 'string' && SIDEBAR_LOGO_POSITIONS.has(value as SidebarLogoPosition)
+    ? value as SidebarLogoPosition
+    : 'top'
 }
 
 /** Same normalize contract as toolBackground; `auto` is the default. */

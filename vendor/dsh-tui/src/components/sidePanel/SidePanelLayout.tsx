@@ -51,6 +51,10 @@ import { sidebarBrandRows } from './sidebarBrand.js'
 export interface SidePanelLayoutProps {
   readonly geometry: SidePanelSplit | null
   readonly focus: SidePanelFocus
+  /** Sidebar mascot placement (`dsh-tui.sidebarLogoPosition`): the divider's
+   *  top junction tee follows the brand-header height, which the placement
+   *  changes (bottom placement = text-only header). */
+  readonly sidebarLogoPosition?: 'top' | 'bottom'
   /** Right-column content (PanelBar + PanelHost + hint). */
   readonly side: React.ReactNode
   readonly onActivateChat?: () => void
@@ -130,6 +134,7 @@ function DividerColumn({
 export function SidePanelLayout({
   geometry,
   focus,
+  sidebarLogoPosition,
   side,
   onActivateChat,
   onActivatePanel,
@@ -189,7 +194,7 @@ export function SidePanelLayout({
           <DividerColumn
             focused={focus === 'panel'}
             rows={rows}
-            junctionRows={[sidebarBrandRows(rows, panelColumns) + 1, Math.max(1, rows - 2)]}
+            junctionRows={[sidebarBrandRows(rows, panelColumns, sidebarLogoPosition ?? 'top') + 1, Math.max(1, rows - 2)]}
             chatColumns={geometry.chat}
             onResize={onResize}
           />

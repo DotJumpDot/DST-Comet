@@ -312,6 +312,18 @@ export const SETTING_DEFINITIONS = {
     hintDescriptions: { zh: '分栏总开关：开启（默认）时 Ctrl+B 与 /panel 在聊天右侧展开侧栏；关闭时两者都退回整屏面板。立即生效。' },
     kind: 'boolean',
   },
+  'sidebarLogoPosition': {
+    label: 'Sidebar mascot position',
+    descriptions: { zh: '侧栏吉祥物位置' },
+    group: 'appearance',
+    hint: 'Place the DST·Comet whale mascot beside the brand wordmark or centered at the bottom of the side panel (needs a wide panel).',
+    hintDescriptions: { zh: '将 DST·Comet 鲸鱼吉祥物放在品牌字标旁或侧栏底部居中（需要较宽的面板）。' },
+    kind: 'select',
+    options: [
+      { value: 'top', label: 'Header (beside wordmark)', descriptions: { zh: '顶部（字标旁）' } },
+      { value: 'bottom', label: 'Bottom center', descriptions: { zh: '底部居中' } },
+    ],
+  },
   'smoothStreaming': {
     label: 'Smooth streaming',
     descriptions: { zh: '流式平滑输出' },

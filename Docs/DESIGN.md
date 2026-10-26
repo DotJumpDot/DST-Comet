@@ -149,6 +149,16 @@ piece of that identity.
 - `SidePanelLayout.tsx` divider junctions follow
   `sidebarBrandRows(rows, panelColumns) + 1` and `rows - 2`.
 
+- **Placement is a setting** (`dsh-tui.sidebarLogoPosition`, default
+  `top`): `top` keeps the mascot beside the wordmark; `bottom` parks it
+  centered at the panel foot above the hint row (own rows budgeted from
+  the host, one breathing row under the panel content, same click cycle
+  and the same ≥42-col width gate). Full pref chain like every display
+  setting: Config schema → channel seed/apply → channel-ui port +
+  ui-policy → state/preferences → Chat → SidePanelLayout (junction tees
+  follow the text-only header height) → SidePanelColumn. The mascot
+  VARIANT (girl/whale/none) stays the click-cycle file pref.
+
 ## 10. ✅ Final summary lifted above the workflow — 2026-10-26
 
 `MessageList.tsx`'s visible-row pre-pass (`promoteFinalSummaries`) finds each

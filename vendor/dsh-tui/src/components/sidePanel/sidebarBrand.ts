@@ -25,11 +25,21 @@ export const SIDEBAR_BRAND_GAP = 1
 
 /** Total rows above the panel bar on a roomy terminal, or the compact 2-row
  *  mascot strip on a short one (always including the gap). A 24-column
- *  mascot needs a wide sidebar too; narrower columns keep the text only. */
-export function sidebarBrandRows(terminalRows: number, panelWidth = 0): number {
+ *  mascot needs a wide sidebar too; narrower columns keep the text only.
+ *  `bottom` placement parks the mascot at the panel foot instead, so the
+ *  header is always the text-only two rows — the position setting
+ *  (`dsh-tui.sidebarLogoPosition`) rides the display-pref chain. */
+export function sidebarBrandRows(terminalRows: number, panelWidth = 0, position: 'top' | 'bottom' = 'top'): number {
+  if (position === 'bottom') return 2 + SIDEBAR_BRAND_GAP
   return terminalRows >= 30 && panelWidth >= 42
     ? SIDEBAR_BRAND_ROWS + SIDEBAR_BRAND_GAP
     : 2 + SIDEBAR_BRAND_GAP
+}
+
+/** Mascot text rows for the bottom placement: the full 8-row sprite on a
+ *  roomy terminal, the compact 2-row strip on a short one. */
+export function sidebarMascotRows(terminalRows: number): number {
+  return terminalRows >= 30 ? SIDEBAR_BRAND_ROWS : 2
 }
 
 const PREFS_FILE = join(DATA_DIR, 'sidebar-logo.json')

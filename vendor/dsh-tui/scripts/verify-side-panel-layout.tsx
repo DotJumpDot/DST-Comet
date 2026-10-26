@@ -23,7 +23,7 @@ process.env.FORCE_COLOR = '3'
 // switches at runtime via setLang (i18n hot-swaps).
 process.env.DSH_TUI_LANG = 'zh'
 
-const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, dims, prefs, { setLang }, termTest, { sidebarBrandRows }] = await Promise.all([
+const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelLayout }, { SidePanelColumn }, { useSidePanel }, dims, prefs, { setLang }, termTest, { sidebarBrandRows, sidebarMascotRows, SIDEBAR_BRAND_ROWS }] = await Promise.all([
   import('node:stream'),
   import('react'),
   import('@xterm/headless'),
@@ -78,7 +78,7 @@ function ChatFake({ width }: { width: number }): React.ReactNode {
 
 // Controller-driven split: mirrors Chat's call site (useSidePanel reads
 // useTerminalSize via its columns prop and resolves geometry per render).
-function SplitFixture({ focusPanel, zoom }: { focusPanel: boolean; zoom?: boolean }): React.ReactNode {
+function SplitFixture({ focusPanel, zoom, logoPosition }: { focusPanel: boolean; zoom?: boolean; logoPosition?: 'top' | 'bottom' }): React.ReactNode {
   const size = useTerminalSize()
   const sp = useSidePanel({ columns: size.columns, fullscreen: true, editorOpen: false })
   React.useEffect(() => {
@@ -91,8 +91,9 @@ function SplitFixture({ focusPanel, zoom }: { focusPanel: boolean; zoom?: boolea
     <SidePanelLayout
       geometry={geo}
       focus={sp.focus}
+      sidebarLogoPosition={logoPosition}
       side={geo === null ? null : (
-        <SidePanelColumn width={geo.panel} controller={sp} channel={channelStub as never} />
+        <SidePanelColumn width={geo.panel} controller={sp} channel={channelStub as never} sidebarLogoPosition={logoPosition} />
       )}
     >
       <ChatFake width={geo === null ? size.columns : geo.chat} />
@@ -111,6 +112,11 @@ function check(name: string, ok: boolean, extra = '') {
 check('brand: 22 rows keep the compact mascot header', sidebarBrandRows(22) === 3)
 check('brand: a 39-col panel stays text-only', sidebarBrandRows(40, 39) === 3)
 check('brand: a 46-col panel uses the 8-row mascot header + gap', sidebarBrandRows(40, 46) === 9)
+// Bottom placement (`dsh-tui.sidebarLogoPosition: bottom`): the header is
+// always the text-only two rows + gap, and the mascot itself gets its own
+// rows at the panel foot (full sprite on tall terminals, strip on short).
+check('brand: bottom placement keeps the text-only header', sidebarBrandRows(40, 46, 'bottom') === 3)
+check('mascot: bottom sprite rows follow terminal height', sidebarMascotRows(40) === SIDEBAR_BRAND_ROWS && sidebarMascotRows(22) === 2)
 
 class FakeStdout extends Writable {
   columns: number
@@ -322,6 +328,24 @@ function assertSplitFrame(name: string, frame: Frame, geo: { chat: number; panel
   await fresh.app.unmount()
   check('resize: 120->100->120 equals a fresh 120 render', JSON.stringify(backLines) === JSON.stringify(freshLines),
     'back=' + JSON.stringify(backLines.slice(0, 3)) + ' fresh=' + JSON.stringify(freshLines.slice(0, 3)))
+}
+
+// --- 9. bottom mascot placement (dsh-tui.sidebarLogoPosition: bottom) ------
+{
+  // 120 cols / ratio 0.68 → a 38-col panel? assertSplitFrame earlier used a
+  // wider geometry; mount at 140 so the panel clears the 42-col mascot gate.
+  const frame = await mountTree(140, <SplitFixture focusPanel={false} logoPosition="bottom" />)
+  const lines = frame.lines()
+  const panelCol = lines[0].indexOf('DST·Comet')
+  // Header is text-only: no half-block sprite beside the wordmark rows.
+  const headerSlice = lines.slice(0, 3).map(l => l.slice(Math.max(0, panelCol - 24), panelCol)).join('')
+  check('bottom: header carries the wordmark without the mascot', lines[0].includes('DST·Comet') && !/[▀▄█]/.test(headerSlice), JSON.stringify(lines.slice(0, 3).map(l => l.slice(-46))))
+  // The mascot rides above the bottom rule: sprite rows in the last
+  // (mascotRows + rule + hint) rows, centered in the panel column.
+  const tail = lines.slice(ROWS - 11, ROWS - 2).map(l => l.slice(-46))
+  check('bottom: mascot sprite sits at the panel foot', tail.some(l => /[▀▄█]/.test(l)), JSON.stringify(tail))
+  check('bottom: hint row still last', lines[ROWS - 1].includes('Ctrl+B') || lines[ROWS - 1].trim() !== '', JSON.stringify(lines[ROWS - 1]))
+  await frame.app.unmount()
 }
 
 // --- 8. en hint pass -------------------------------------------------------

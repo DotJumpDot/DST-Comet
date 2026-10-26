@@ -7018,12 +7018,14 @@ export function Chat({
       <SidePanelLayout
         geometry={sidePanel.geometry}
         focus={sidePanel.focus}
+        sidebarLogoPosition={channel.sidebarLogoPosition}
         onActivateChat={sidePanel.focusChat}
         onActivatePanel={sidePanel.focusPanel}
         onResize={sidePanel.resize}
         side={
           <SidePanelColumn
             width={sidePanel.panelColumns}
+            sidebarLogoPosition={channel.sidebarLogoPosition}
             controller={sidePanel}
             channel={channel}
             activity={workingActivity}

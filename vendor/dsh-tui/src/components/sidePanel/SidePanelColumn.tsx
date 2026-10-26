@@ -10,12 +10,12 @@ import type { ChannelUi } from '../../adapter/channel/ui-policy.js'
 import { useSurfaceEdges } from '../SurfaceEdges.js'
 import { installedTuiVersion } from '../../update.js'
 import { PanelBar, type PanelBarTab } from './PanelBar.js'
+import { SidebarMascot } from './SidebarMascot.js'
 import { PanelHost } from './PanelHost.js'
 import { panelStore } from './PanelStore.js'
 import { registerBuiltinPanels } from './builtinPanels.js'
 import type { SidePanelController } from './useSidePanel.js'
-import { SIDEBAR_BRAND_GAP, SIDEBAR_BRAND_ROWS, cycleSidebarLogo, getSidebarLogo, sidebarBrandRows, subscribeSidebarLogo } from './sidebarBrand.js'
-import { SidebarMascot } from './SidebarMascot.js'
+import { SIDEBAR_BRAND_GAP, SIDEBAR_BRAND_ROWS, cycleSidebarLogo, getSidebarLogo, sidebarBrandRows, sidebarMascotRows, subscribeSidebarLogo } from './sidebarBrand.js'
 
 registerBuiltinPanels()
 
@@ -29,6 +29,10 @@ export interface SidePanelColumnProps {
   readonly onExpand?: (panelId: string) => void
   /** 会话轨迹投影（轨迹 Panel 的数据源）。 */
   readonly trajectory?: import('../../dsh-adapter/trajectory/index.js').TrajBuild
+  /** Sidebar mascot placement (settings `dsh-tui.sidebarLogoPosition`):
+   *  `top` beside the wordmark (default), `bottom` centered at the panel
+   *  foot above the hint row. */
+  readonly sidebarLogoPosition?: 'top' | 'bottom'
 }
 
 function fallbackTitle(id: string): string {
@@ -70,14 +74,14 @@ function EmptyNone(): React.ReactNode {
  *  whale → none (persisted in `~/.dsh-tui/sidebar-logo.json`); the wordmark
  *  keeps a small right indent so it reads as a caption next to the art.
  *  Short terminals drop to a 2-row strip so the transcript keeps its rows. */
-function BrandHeader({ width, height, channel }: { readonly width: number; readonly height: number; readonly channel: ChannelUi }): React.ReactNode {
+function BrandHeader({ width, height, channel, position }: { readonly width: number; readonly height: number; readonly channel: ChannelUi; readonly position: 'top' | 'bottom' }): React.ReactNode {
   // Same memo pattern as Chat's tuiVersion: the call reads installed files,
   // and this column re-renders on every channel emission.
   const version = React.useMemo(() => installedTuiVersion(), [])
   const logo = React.useSyncExternalStore(subscribeSidebarLogo, getSidebarLogo)
   // A 24-column mascot needs a wide sidebar; below that the wordmark takes
   // the full width. The wordmark starts right after the art (one-cell gap).
-  const showLogo = logo !== 'none' && width >= 42
+  const showLogo = position === 'top' && logo !== 'none' && width >= 42
   const mark = `DST·Comet${version !== undefined ? ' v' + version : ''}`
   const meta = [channel.model, channel.reasoningEffort].filter(part => part !== undefined && part !== '').join(' · ')
   const compact = height < SIDEBAR_BRAND_ROWS
@@ -109,7 +113,7 @@ function BrandHeader({ width, height, channel }: { readonly width: number; reado
   )
 }
 
-export function SidePanelColumn({ width, controller, channel, activity, attention, onExpand, trajectory }: SidePanelColumnProps): React.ReactNode {
+export function SidePanelColumn({ width, controller, channel, activity, attention, onExpand, trajectory, sidebarLogoPosition = 'top' }: SidePanelColumnProps): React.ReactNode {
   const focused = controller.focus === 'panel'
   const { rows } = useTerminalSize()
   const entries = React.useSyncExternalStore(panelStore.subscribe, () => panelStore.list())
@@ -155,11 +159,18 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
     [controller.openPanel],
   )
   // Host 高度 = 列高 - 品牌头（宽屏 9 / 矮屏 3，含 1 行留白）- PanelBar/上规/下规/hint 四行 chrome。
-  const brandRows = sidebarBrandRows(rows, width)
-  const hostHeight = Math.max(1, rows - (brandRows + 4))
+  const brandRows = sidebarBrandRows(rows, width, sidebarLogoPosition)
+  // Bottom mascot placement: the mascot occupies its own rows above the
+  // bottom rule (one breathing row between host and mascot), so the panel
+  // host yields exactly those rows. Hidden logos and narrow panels (<42
+  // cols) keep the rows — same rule as the header placement.
+  const logo = React.useSyncExternalStore(subscribeSidebarLogo, getSidebarLogo)
+  const bottomMascot = sidebarLogoPosition === 'bottom' && logo !== 'none' && width >= 42
+  const mascotRows = sidebarMascotRows(rows)
+  const hostHeight = Math.max(1, rows - (brandRows + 4) - (bottomMascot ? mascotRows + 1 : 0))
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
-      <BrandHeader width={width} height={brandRows - SIDEBAR_BRAND_GAP} channel={channel} />
+      <BrandHeader width={width} height={brandRows - SIDEBAR_BRAND_GAP} channel={channel} position={sidebarLogoPosition} />
       <Box height={SIDEBAR_BRAND_GAP} flexShrink={0} />
       <PanelBar
         tabs={tabs}
@@ -187,6 +198,22 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
           )
           : <EmptyNone />}
       </Box>
+      {bottomMascot && (
+        // The panel-foot mascot (`dsh-tui.sidebarLogoPosition: bottom`):
+        // centered above the bottom rule, one breathing row under the host.
+        // Same click cycle as the header placement (girl → whale → none).
+        <>
+          <Box height={1} flexShrink={0} />
+          <Box flexDirection="row" justifyContent="center" height={mascotRows} flexShrink={0}
+            onClick={event => {
+              event.stopImmediatePropagation()
+              cycleSidebarLogo()
+            }}
+          >
+            <SidebarMascot variant={logo === 'whale' ? 'whale' : 'whaleGirl'} compact={mascotRows < SIDEBAR_BRAND_ROWS} />
+          </Box>
+        </>
+      )}
       <Rule focused={focused} />
       <Box height={1} flexShrink={0} paddingX={1} overflow="hidden">
         <Text dimColor wrap="truncate-end">

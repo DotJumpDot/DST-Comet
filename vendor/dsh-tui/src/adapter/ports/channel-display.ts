@@ -15,6 +15,11 @@ export type SpinnerMode =
 /** Background treatment applied to tool-call cards. */
 export type ToolBackground = 'none' | 'subtle' | 'strong'
 
+/** Where the DST Comet sidebar mascot rides (settings
+ *  `dsh-tui.sidebarLogoPosition`): in the brand header beside the wordmark,
+ *  or centered at the bottom of the panel column. */
+export type SidebarLogoPosition = 'top' | 'bottom'
+
 /**
  * What the fullscreen transcript's right gutter shows:
  *  - `timeline`: Grok-style turn rail — one tick per user turn (conversation

@@ -47,6 +47,13 @@ Follow-up hardening (same pass):
 | `scripts/verify-side-panel-resize.tsx` | frame helper derives the divider tee from `sidebarBrandRows` (brand header moved the top tee) |
 | `scripts/verify-toolcard-i18n.tsx` | preview-contract scenarios + header-split check pin `oneLineToolCards: false` (fork default hides bodies by design) |
 | `scripts/verify-agent-view-ui.tsx` | Chat phase closes the side panel (fork boots open; the phase pins full-width-chat + fullscreen-dashboard contracts) |
+| `src/adapter/ports/channel-display.ts` + `tuiDisplayPrefs.ts` | `SidebarLogoPosition` type + normalize (mascot placement setting) |
+| `src/adapter/ports/channel-ui.ts` + `adapter/channel/ui-policy.ts` | `sidebarLogoPosition` port property + `setSidebarLogoPosition` (mutate class) |
+| `src/dsh-adapter/{index,channel/state,channel/preferences,plugin}.ts` | config schema, channel seed/init/setter, /settings field `dsh-tui.sidebarLogoPosition` (top/bottom, default top) |
+| `src/settings/definitions.ts` | `sidebarLogoPosition` select entry (appearance, zh/en) |
+| `src/components/sidePanel/{sidebarBrand,SidePanelColumn,SidePanelLayout}.tsx/.ts` | position-aware brand rows + centered bottom mascot block + junction tees follow the text-only header |
+| `src/screens/Chat.tsx` | passes `channel.sidebarLogoPosition` to the layout + column |
+| `scripts/verify-side-panel-layout.tsx` | bottom-placement unit + render checks (221 checks) |
 | `vendor/dsh-tui/cordis.patch.yml` + `patch-surface.snapshot.json` | dropped the `tool-ralph` disable row (0.2.x runtime no longer registers the entry — the row only logged `patch: entry not found` at boot); snapshot regenerated |
 
 Known environment noise (not fork code): `dsh --profile dsh-tui` still logs one

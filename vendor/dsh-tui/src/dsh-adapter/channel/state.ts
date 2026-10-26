@@ -8,7 +8,7 @@ import type { ContextPressureSource } from '../context-occupancy.js'
 import type { TeamSource } from '../team-roster.js'
 import type { ActivityView } from '../activity-store.js'
 import type { SessionModeSpec } from '../../sessionModes.js'
-import { normalizeJobGroupFold, normalizePageMargin, normalizeScrollGutter, normalizeStatusBar, normalizeToolBackground, type JobGroupFoldMode, type PageMarginSetting, type ScrollGutterMode, type StatusBarConfig, type ToolBackground } from '../../tuiDisplayPrefs.js'
+import { normalizeJobGroupFold, normalizePageMargin, normalizeScrollGutter, normalizeStatusBar, normalizeToolBackground, type JobGroupFoldMode, type PageMarginSetting, type ScrollGutterMode, type StatusBarConfig, type ToolBackground , normalizeSidebarLogoPosition, type SidebarLogoPosition } from '../../tuiDisplayPrefs.js'
 import { normalizeActivityPreset } from '../../components/activityFrames.js'
 import { normalizeSplashFont, type SplashFontSetting } from '../../components/splashFonts.js'
 import { normalizeBrandSetting, type BrandSetting } from '../../branding.js'
@@ -99,6 +99,7 @@ export interface ChannelLaunchOptions {
   foldTerminalCommand?: boolean
   /** DST Comet one-line tool cards; absent → on (the Comet default). */
   oneLineToolCards?: boolean
+  sidebarLogoPosition?: SidebarLogoPosition
   turnUsageRow?: boolean
   promptSessionLabel?: boolean
   expandEditor?: boolean
@@ -198,7 +199,7 @@ export function createInitialChannelView(
   'activityFrames' | 'configuredProvider' | 'configuredModel' |
   'configuredPreset' | 'configuredActivityFrames' | 'configuredLang' | 'diffLayout' |
   'thinkingFold' | 'jobGroupFold' | 'toolBackground' | 'scrollGutter' | 'pageMargin' |
-  'foldTerminalCommand' | 'oneLineToolCards' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' |
+  'foldTerminalCommand' | 'oneLineToolCards' | 'sidebarLogoPosition' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' |
   'statusBar' | 'whale' | 'whaleIdle' | 'splashFont' | 'brand' | 'minimalUi' | 'activityEnabled' | 'contextBarEnabled' |
   'statusBar' | 'whale' | 'whaleIdle' | 'whaleGirl' | 'minimalUi' | 'activityEnabled' | 'contextBarEnabled' |
   'agentPreset' | 'goal' | 'todos' | 'loadedContext' | 'pending' | 'commandList' |
@@ -221,6 +222,7 @@ export function createInitialChannelView(
     toolBackground: normalizeToolBackground(options.toolBackground), scrollGutter: normalizeScrollGutter(options.scrollGutter),
     pageMargin: normalizePageMargin(options.pageMargin), foldTerminalCommand: options.foldTerminalCommand === true,
     oneLineToolCards: options.oneLineToolCards !== false,
+    sidebarLogoPosition: normalizeSidebarLogoPosition(options.sidebarLogoPosition),
     turnUsageRow: options.turnUsageRow === true,
     promptSessionLabel: options.promptSessionLabel === true, expandEditor: options.expandEditor !== false,
     smoothStreaming: options.smoothStreaming !== false, statusBar: normalizeStatusBar(options.statusBar),
