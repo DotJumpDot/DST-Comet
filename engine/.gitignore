@@ -1,0 +1,5 @@
+node_modules/
+agent-team/lib/
+tool-agent-team/lib/
+agent-team-profile/lib/
+*.tsbuildinfo

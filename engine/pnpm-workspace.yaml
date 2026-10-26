@@ -1,0 +1,6 @@
+packages:
+  - agent-team
+  - tool-agent-team
+  - agent-team-profile
+allowBuilds:
+  esbuild: true

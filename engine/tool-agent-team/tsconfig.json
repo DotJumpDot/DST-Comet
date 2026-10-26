@@ -1,0 +1,10 @@
+{
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "paths": {
+      "@deepseek-ai/dsh-experimental-agent-team": ["../agent-team/src/index.ts"],
+      "@deepseek-ai/dsh-experimental-agent-team/src/*": ["../agent-team/src/*"]
+    }
+  },
+  "include": ["src", "tests"]
+}
