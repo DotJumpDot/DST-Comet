@@ -665,6 +665,22 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           ...(args.preserve_url === undefined ? {} : { preserveUrl: args.preserve_url }),
         })
         ops.attachBoardTask(task.id, boardTask.id, claimed.revision)
+        // Wake the Mother explicitly (DST-Comet live-run gap): the board
+        // mirror only wakes Lead-side waiters that were ALREADY waiting when
+        // the task appeared — a Lead that calls wait_agent afterwards sleeps
+        // until timeout while a lane sits parked on the human. A direct
+        // message is both a wait_agent change event and a durable inbox row
+        // the Lead sees on the next list/snapshot.
+        if (membership.role !== 'lead') {
+          await ctx.agentTeams.sendMessage(caller, {
+            target: 'lead',
+            content: [{
+              type: 'text',
+              text: `human wall: ${args.title} (task ${task.id}, lane ${args.lane ?? membership.name}) — my tool calls are parked until it is resolved; the queue is in human_task_list / the Agents panel (task section, Doing tab).`,
+            }],
+            signal: exec.signal,
+          })
+        }
         return { task: humanTaskView(task) }
       },
     })))

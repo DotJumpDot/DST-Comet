@@ -14,7 +14,7 @@ import test from 'node:test'
 import * as mod from '../src/index.ts'
 
 /** Model-facing view of a queued human task (snake_case, as the tool promises). */
-interface TaskView { id: string; member: string; status: string; board_task_id?: string }
+interface TaskView { id: string; member: string; status: string; lane?: string; board_task_id?: string }
 
 /** Minimal TeamMemberView-shaped row for the fake service. */
 const leadView = {
@@ -206,4 +206,32 @@ test('wait_agent surfaces a user abort as a structured result, not an error', as
   // non-abort failures still propagate
   ctx.agentTeams.waitForChange = async () => { throw new Error('engine exploded') }
   await assert.rejects(() => wait.execute({}, exec(lead)), /engine exploded/)
+})
+
+test('human_task_create by a teammate messages the Lead (Mother wake-up gap)', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const create = registered.find(row => row.name === 'human_task_create')!.definition
+  const sent: Array<{ target: string; text: string }> = []
+  ctx.agentTeams.sendMessage = async (_caller: unknown, request: any) => {
+    sent.push({ target: request.target, text: request.content[0].text })
+    return { messageId: 'm1' }
+  }
+  // The Lead parking itself must not self-notify.
+  await create.execute({ title: 'lead wall', steps: ['x'], done_when: 'y' }, exec(lead))
+  assert.equal(sent.length, 0, 'the Lead parking itself does not message itself')
+  // A teammate hitting the human wall notifies the Lead — both a wait_agent
+  // change event and a durable inbox row (live-run gap: the board mirror
+  // alone only woke waiters that were already waiting).
+  const mate: any = { id: 'sess-mate' }
+  const result = await create.execute(
+    { title: 'enter the emailed OTP', steps: ['open the email', 'type the code'], done_when: 'logged in', lane: 'klaviyo' },
+    exec(mate),
+  )
+  const task = result.task as TaskView
+  assert.equal(task.lane, 'klaviyo')
+  assert.equal(sent.length, 1, 'the teammate parks AND the Lead is notified')
+  assert.equal(sent[0]!.target, 'lead')
+  assert.match(sent[0]!.text, /human wall: enter the emailed OTP/)
+  assert.match(sent[0]!.text, /klaviyo/)
 })
