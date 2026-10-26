@@ -114,8 +114,23 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
   const jobsText = jobs !== undefined ? jobsLive + '/' + jobs.length : none
   const subagents = channel.subagents
   const subagentsText = subagents !== undefined ? String(subagents.length) : none
-  // DST Comet: the per-turn MCP snapshot (same lines the /mcp command prints).
+  // DST Comet: the per-turn MCP snapshot (same lines the /mcp command prints),
+  // split into server rows and notes. A server row is `  name · status · N
+  // tools` (the report template's leading indent); everything else — the
+  // `MCP servers (n)` heading, the needs-auth note — is a note.
   const mcpLines = channel.mcpStatus()
+  const mcpRows: Array<{ name: string; status: string; tools?: string }> = []
+  const mcpNotes: string[] = []
+  for (const line of mcpLines) {
+    if (line.startsWith('  ')) {
+      const parts = line.trim().split(' · ')
+      const name = parts[0] ?? ''
+      if (name === '') continue
+      mcpRows.push({ name, status: parts[1] ?? '', tools: parts[2] })
+    } else if (line.trim() !== '') {
+      mcpNotes.push(line.trim())
+    }
+  }
 
   // 标签列取「本语言最长标签」与「内容宽一半」的较小者：28 列时标签
     // 先让路（截断），值列保住至少一半——点名字段的前缀必须仍可读。
@@ -206,20 +221,31 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
           <Row label={t('info-row-subagents')} value={subagentsText} />
         </Section>
         <Section title={t('info-section-mcp')}>
-          {/* DST Comet: per-turn MCP snapshot (the /mcp report source). Rows
-              skip the report's own heading; the row's status word colors it. */}
-          {(mcpLines.length === 0 ? [t('backend-mcp-loading')] : mcpLines).map((line, index) => {
-            const needsAuth = line.includes('needs-auth')
-            const connected = line.includes('connected')
-            return (
+          {/* DST Comet: per-turn MCP snapshot (the /mcp report source).
+              Server rows are `  name · status · N tools` (leading indent);
+              other lines are the heading / needs-auth note and render dim.
+              Status colors match on the parsed segment only — a substring
+              test would paint `disconnected` green. */}
+          {mcpRows.length === 0 && mcpNotes.length === 0
+            ? <Row label="MCP" value={t('backend-mcp-loading')} />
+            : mcpRows.map(row => (
               <Row
-                key={index}
-                label={index === 0 ? 'MCP' : ''}
-                value={line.trim() === '' ? none : line.trim()}
-                valueColor={needsAuth ? 'warning' : connected ? 'success' : undefined}
+                key={row.name}
+                label={row.name}
+                value={[row.status, row.tools].filter(Boolean).join(' · ')}
+                valueColor={
+                  row.status === 'connected' ? 'success'
+                    : row.status === 'needs-auth' ? 'warning'
+                      : row.status === 'disconnected' || row.status === 'error' || row.status === 'failed' ? 'error'
+                        : undefined
+                }
               />
-            )
-          })}
+            ))}
+          {mcpNotes.map((note, index) => (
+            <Box key={`note-${index}`} width="100%">
+              <Text dimColor wrap="truncate-end">{note}</Text>
+            </Box>
+          ))}
         </Section>
       </ScrollBox>
     </Box>

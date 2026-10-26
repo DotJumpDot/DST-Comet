@@ -67,7 +67,9 @@ function EmptyNone(): React.ReactNode {
  *  bar — the product mark and the live model·effort line (the sidebar's
  *  take on the boot splash's 「◆ dsh-TUI v… / model · effort」 block). */
 function BrandHeader({ width, channel }: { readonly width: number; readonly channel: ChannelUi }): React.ReactNode {
-  const version = installedTuiVersion()
+  // Same memo pattern as Chat's tuiVersion: the call reads installed files,
+  // and this column re-renders on every channel emission.
+  const version = React.useMemo(() => installedTuiVersion(), [])
   const mark = `◆ DST·Comet${version !== undefined ? ' v' + version : ''}`
   const meta = [channel.model, channel.reasoningEffort].filter(part => part !== undefined && part !== '').join(' · ')
   return (

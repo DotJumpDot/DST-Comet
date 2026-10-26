@@ -856,11 +856,13 @@ export function AssistantToolUseMessage({
   // DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`): collapsed
   // terminal and generic cards render their header line only — the preview
   // body and its fold hint disappear; click / Ctrl+O reveals everything.
-  // Error verdicts keep the normal body (a stack trace must stay readable),
-  // split diffs are untouched, and the terminal exit-code footnote below
-  // still rides outside every cap.
+  // Running cards are exempt: the running-elapsed line and the live-output
+  // window (spliced into shownLines below) are the only progress feedback a
+  // long command has. Error verdicts keep the normal body (a stack trace
+  // must stay readable), split diffs are untouched, and the terminal
+  // exit-code footnote below still rides outside every cap.
   if (
-    oneLineToolCards && !verbose && !sendMessageRawOpen && !isError && !useSplitDiff
+    oneLineToolCards && !verbose && !isRunning && !sendMessageRawOpen && !isError && !useSplitDiff
     && (view === undefined || view.card === 'terminal' || view.card === 'generic')
   ) {
     body = []

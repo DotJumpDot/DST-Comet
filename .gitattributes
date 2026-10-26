@@ -1,0 +1,6 @@
+# Shell scripts and launchers must keep LF endings so shebangs work in
+# Git Bash / WSL regardless of core.autocrlf.
+*.sh text eol=lf
+bin/dstc text eol=lf
+*.bat text eol=crlf
+*.cmd text eol=crlf

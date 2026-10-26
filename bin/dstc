@@ -1,5 +1,6 @@
 #!/bin/sh
 # dstc — DST Comet launcher (bash). Mirrors bin/dstc.cmd.
+# --resume: feed the session id recorded by the TUI to DSH_TUI_RESUME_SESSION.
 set -e
 : "${NODE_ENV:=production}"
 export NODE_ENV
@@ -10,15 +11,18 @@ command -v dsh >/dev/null 2>&1 || {
   exit 1
 }
 
-ARGS=""
-resume=""
+# Rebuild the positional set without --resume (the for list snapshots "$@"
+# before `set --` starts replacing it).
+set --
 for a in "$@"; do
-  if [ "$a" = "--resume" ] && [ -f "$HOME/.dsh-tui/resume.txt" ]; then
-    resume=$(cat "$HOME/.dsh-tui/resume.txt")
-    export DSH_TUI_RESUME_SESSION="$resume"
+  if [ "$a" = "--resume" ]; then
+    if [ -f "$HOME/.dsh-tui/resume.txt" ]; then
+      DSH_TUI_RESUME_SESSION=$(cat "$HOME/.dsh-tui/resume.txt")
+      export DSH_TUI_RESUME_SESSION
+    fi
   else
-    ARGS="$ARGS \"$a\""
+    set -- "$@" "$a"
   fi
 done
 
-eval "dsh --profile dsh-tui $ARGS"
+exec dsh --profile dsh-tui "$@"

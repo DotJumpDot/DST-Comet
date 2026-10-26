@@ -3,6 +3,24 @@
 House rule: one line per file, why it changed. New upstream pins re-apply
 this list.
 
+## 2026-10-26 — recheck pass (bug fixes)
+
+- `AssistantToolUseMessage.tsx`: one-line suppression now skips RUNNING cards
+  (the running-elapsed line and live-output window are the only progress
+  feedback; suppression also killed pending write previews mid-call).
+- `InfoPanel.tsx`: MCP rows parsed by segment (`name · status · tools`) with
+  exact status matching — the first cut's substring test painted
+  `disconnected` green; server names are now row labels, notes render dim.
+- `SidePanelColumn.tsx`: `installedTuiVersion()` memoized (it reads installed
+  files; the column re-renders on every channel emission).
+- Profile install flow: the tarball now lives at `dist/dst-comet.tgz`
+  (persistent — the profile's `file:` dependency resolves it on future
+  plugin operations); `install-fork.bat` packs with pnpm 11 + hoisted
+  linker (pnpm 12 refuses bundledDependencies).
+- `bin/dstc`: POSIX arg rebuild instead of eval string; `.gitattributes`
+  pins LF for shell launchers.
+- Gates: `typecheck` + full `verify:build` suite run clean on the fork.
+
 ## 2026-10-26 — first feature pass
 
 | File | Why |
