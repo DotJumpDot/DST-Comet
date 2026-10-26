@@ -1,0 +1,19 @@
+{
+  "name": "@dst-comet/agent-tools",
+  "version": "0.1.0",
+  "description": "DST Comet model-facing agent tools: context_status (context usage awareness) and session_compact (agent-initiated compaction at chosen checkpoints).",
+  "type": "module",
+  "main": "index.js",
+  "engines": {
+    "dsh": "0.2.1-rc.2 || 0.2.1-rc.3"
+  },
+  "dependencies": {
+    "@deepseek-ai/dsh-tools": "0.2.1-rc.2"
+  },
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  },
+  "license": "MIT"
+}

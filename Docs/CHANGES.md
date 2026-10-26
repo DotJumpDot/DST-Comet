@@ -3,6 +3,20 @@
 House rule: one line per file, why it changed. New upstream pins re-apply
 this list.
 
+## 2026-10-26 — model-facing context tools + desktop shortcut
+
+- `plugins/dst-comet-agent-tools/` (new out-of-tree dsh bundle, installed in
+  the profile): `context_status` (agent reads its own context usage — used
+  tokens, window, %, auto-compact trigger from `tokenMeter`) and
+  `session_compact` (agent-initiated compaction: schedules
+  `ctx.compaction.compactNow` for the turn's end via `agent.whenIdle()` with
+  a busy-retry, since compaction requires an idle agent). Vendored dep
+  `@deepseek-ai/dsh-tools@0.2.1-rc.2`; `engines.dsh` gates compatibility.
+  Stock DSH exposes NEITHER to the model (token meter is UI-only; compact is
+  human `/compact` only).
+- Desktop: `DST-Comet.lnk` (cmd /k dstc) + generated `assets/dst-comet.ico`
+  (comet head+tail, mist-blue); icon also installed to `~/.dsh/icons/`.
+
 ## 2026-10-26 — comet theme + prose palette + agent-team orchestration
 
 - `src/theme.ts`: 8 new Theme keys (method pills ×6, proseStrong,

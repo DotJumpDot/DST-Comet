@@ -1,0 +1,9 @@
+# DST Comet agent tools: mounts the model-facing context awareness +
+# self-compaction tools. autoCompactRatio mirrors the profile's
+# compaction-basic thresholdRatio (cordis.yml `compact` row) so
+# context_status reports the same trigger the backend actually uses.
+- insert:
+    - id: dst-agent-tools
+      name: '@dst-comet/agent-tools'
+      config:
+        autoCompactRatio: 0.45
