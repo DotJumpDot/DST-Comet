@@ -106,26 +106,29 @@ function teamSenderOf(row: ChatRow): string | undefined {
 }
 
 /**
- * DST Comet: lift a turn's settled final answer above that turn's tool cards.
+ * DST Comet: mark a turn's settled final answer as the final summary.
  *
- * The session log stays the source of truth and its event order is untouched;
- * this is a display-only reorder of the visible window (like the job-group
- * fold decoration). A turn qualifies when it has at least one tool card, the
- * answer is the last assistant text of the turn, it comes after the last tool
- * call, it is settled, and no tool of the turn is still running. The newest
- * turn also waits for the agent to go idle (`agentRunning`), so a mid-turn
- * assistant step does not flicker up and back down when the model calls
- * another tool.
+ * The session log stays the source of truth; this is a display-only
+ * decoration (like the job-group fold). A turn qualifies when it has at
+ * least one tool card, the answer is the last assistant text of the turn,
+ * it comes after the last tool call, it is settled, and no tool of the turn
+ * is still running. The newest turn also waits for the agent to go idle
+ * (`agentRunning`), so a mid-turn assistant step does not flicker into a
+ * summary and back when the model calls another tool.
  *
- * The moved row is a shallow copy carrying `finalSummary: true` — the
- * projection's rows may be frozen, so never write the flag onto the shared
- * row.
+ * The flagged row is a shallow copy carrying `finalSummary: true` and STAYS
+ * AT THE END OF THE TURN — earlier builds relocated it above the workflow,
+ * which teleported the text out of the viewport the moment streaming ended
+ * (the user watched it vanish). The answer renders exactly where it
+ * streamed: always expanded, under a ✓ Final summary header.
+ *
+ * Never write the flag onto the shared row — projection rows may be frozen.
  */
 function promoteFinalSummaries(rows: ChatRow[], agentRunning: boolean): ChatRow[] {
-  let moved: ChatRow[] | null = null
+  let decorated: ChatRow[] | null = null
   // A scrolled-off leading user message must not strand its turn: a window
   // that opens mid-turn (tool cards at the top, no user row in view) still
-  // lifts its final answer from a synthetic boundary before rows[0].
+  // marks its final answer from a synthetic boundary before rows[0].
   const starts: number[] = []
   if (rows.length > 0 && !isTurnRow(rows[0]!)) starts.push(-1)
   for (let at = 0; at < rows.length; at++) {
@@ -153,13 +156,11 @@ function promoteFinalSummaries(rows: ChatRow[], agentRunning: boolean): ChatRow[
       final.streaming !== true && final.finalSummary !== true &&
       assistantDisplayText(final).trim() !== ''
     ) {
-      moved ??= rows.slice()
-      const summary: ChatRow = { ...final, finalSummary: true }
-      moved.splice(lastAssistant, 1)
-      moved.splice(start + 1, 0, summary)
+      decorated ??= rows.slice()
+      decorated[lastAssistant] = { ...final, finalSummary: true }
     }
   }
-  return moved ?? rows
+  return decorated ?? rows
 }
 
 /** Keep a settled text-only reply visible when narration is its whole body. */

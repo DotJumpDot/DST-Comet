@@ -1,14 +1,15 @@
 /**
- * DST Comet transcript regression: final-summary lift + one-line tool cards.
+ * DST Comet transcript regression: in-place final summary + one-line tool cards.
  *
  * Locks the user-facing contract:
- *  1. a settled answer that follows tool work is lifted ABOVE the turn's
- *     tool cards and lifted ALWAYS EXPANDED (`✓ Final summary` header +
-*     the full Markdown body — the answer never folds);
+ *  1. a settled answer that follows tool work is marked as the final summary
+ *     IN PLACE (end of the turn — where it streamed), ALWAYS EXPANDED
+ *     (`✓ Final summary` header + the full Markdown body — the answer never
+ *     folds and never teleports out of the viewport);
  *  2. the full body is hidden until expanded (Ctrl+O here) and comes back
  *     after collapsing;
- *  3. while a tool of the turn is still running, the answer stays at the
- *     bottom (no premature lift); settling the tool promotes it;
+ *  3. while a tool of the turn is still running, the answer stays unmarked;
+ *     settling the tool promotes it;
  *  4. Read / Grep / Pwsh / MCP cards render their header line only, with a
  *     persistent disclosure affordance, and keep body text hidden.
  *
@@ -133,11 +134,13 @@ const inst = await render(
   check('tone: the wash is a truecolor blend', washes.every(value => typeof value === 'string' && value.startsWith('rgb(')))
 }
 
-// 1. Final summary is above the tool cards and always expanded.
+// 1. Final summary stays at the END of the turn (where it streamed) and is
+// always expanded — earlier builds relocated it above the tool cards, which
+// teleported it out of the viewport on long turns.
 check('final summary renders', await settled(() => screen().includes('Final summary')))
 const summaryRow = rowOf('Final summary')
 const readRow = rowOf('Read')
-check('final summary sits above the first tool card', summaryRow >= 0 && readRow > summaryRow, `summary=${summaryRow} read=${readRow}`)
+check('final summary sits after the tool cards', summaryRow >= 0 && summaryRow > readRow, `summary=${summaryRow} read=${readRow}`)
 check('final summary body keeps the first line', screen().includes('All done.'))
 check('final summary renders its later body lines', screen().includes('SECOND-LINE-ONLY'))
 

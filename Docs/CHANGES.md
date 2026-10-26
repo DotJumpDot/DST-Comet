@@ -4,6 +4,15 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — final summary stays where it streamed (in-place, no lift)
+
+| File | Why |
+|---|---|
+| `src/components/MessageList.tsx` | the settled answer is now DECORATED IN PLACE at the end of the turn (always expanded, ✓ header) instead of being relocated above the tool cards — on long turns the relocation teleported the text out of the viewport the moment streaming ended, so the user watched the summary vanish. Copy-on-write flag, no reorder |
+| `scripts/verify-comet-transcript.tsx` | pins the in-place contract (summary row AFTER the tool cards, still always-expanded, still gated on tool/agent settle) |
+
+Companion Constellation-MCP commit `a0e14ba` (smoke-audit findings): scope_set/get/audit tools registered (the guard was enforced but never armable), file://+view-source://+javascript:// navigation denied, http_request non-http(s) scheme rejection, CONSTELLATION_REQUIRE_SCOPE=1 mode, 20 KB body preview cap (sha still covers full body), http_jars {forget}, tab_open/tab_lease require an explicit owner, per-owner tab-index error text, force_action reports the final URL, mail TLS verification re-enabled, repo tools prefer DSH_WORKSPACE/DSH_SESSION_CWD/DSH_CWD.
+
 ## 2026-10-27 — run-log hardening (live orchestra feedback, 15.7k-line export)
 
 | File | Why |
