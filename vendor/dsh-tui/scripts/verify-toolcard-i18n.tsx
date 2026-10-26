@@ -65,7 +65,11 @@ const base = {
 type Scenario = {
   id: string
   tool: Record<string, unknown>
-  opts?: { foldTerminalCommand?: boolean }
+  /** Mount-level card options. `oneLineToolCards: false` restores the classic
+   *  collapsed preview for scenarios that pin ITS copy (the fork's default
+   *  one-line mode hides the preview body by design — those strings still
+   *  exist whenever the setting is off). */
+  opts?: { foldTerminalCommand?: boolean; oneLineToolCards?: boolean }
   zh: string[]
   en: string[]
 }
@@ -94,6 +98,7 @@ const SCENARIOS: Scenario[] = [
   {
     id: 'body-fold-hint',
     tool: { name: 'read', resultFull: 'l1\nl2\nl3\nl4\nl5' },
+    opts: { oneLineToolCards: false },
     zh: ['… +2 行（ctrl+o 展开）'],
     en: ['… +2 lines (ctrl+o to expand)'],
   },
@@ -105,7 +110,7 @@ const SCENARIOS: Scenario[] = [
       resultView: { card: 'terminal', output: '', exitCode: 0 },
       resultFull: '',
     },
-    opts: { foldTerminalCommand: true },
+    opts: { foldTerminalCommand: true, oneLineToolCards: false },
     zh: ['Bash(cd /tmp)', '… +2 行（ctrl+o 展开）'],
     en: ['Bash(cd /tmp)', '… +2 lines (ctrl+o to expand)'],
   },
@@ -145,6 +150,7 @@ const SCENARIOS: Scenario[] = [
       resultView: { card: 'search', shape: 'paths' as const, paths: ['src/a.ts'], truncated: true, total: 7 },
       resultFull: 'src/a.ts',
     },
+    opts: { oneLineToolCards: false },
     zh: ['…（共 7 条）'],
     en: ['… (7 total)'],
   },
@@ -194,6 +200,7 @@ async function runPass(lang: 'zh' | 'en') {
       marginTopOnTurn: false,
       verbose: false,
       foldTerminalCommand: scenario.opts?.foldTerminalCommand ?? false,
+      oneLineToolCards: scenario.opts?.oneLineToolCards ?? true,
     }))
     for (const expected of scenario[lang]) {
       check(`[${lang}] ${scenario.id}: 「${expected}」上屏`, await settled(() => screenOf(rig.term).includes(expected)))
@@ -232,6 +239,10 @@ await runPass('en')
     },
     marginTopOnTurn: false,
     verbose: false,
+    // Classic split header: the fork's one-line header carries the whole
+    // title in the tool tone by design, so the paren split contract is
+    // asserted with the classic card.
+    oneLineToolCards: false,
   }), { stdout: titleRig.stdout, debug: true, exitOnCtrlC: false, patchConsole: false })
   await settled(() => screenOf(titleRig.term).includes(title))
   const buffer = titleRig.term.buffer.active

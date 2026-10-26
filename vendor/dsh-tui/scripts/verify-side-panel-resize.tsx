@@ -19,6 +19,7 @@ const [
   assert, { PassThrough, Writable }, React, { Terminal: XTerm }, ui,
   { PageMargin }, { SidePanelLayout }, { useSidePanel }, prefs,
   { default: instances }, { hasSelection }, { Chat }, { QuestionStore }, termTest,
+  { sidebarBrandRows },
 ] = await Promise.all([
   import('node:assert/strict'),
   import('node:stream'),
@@ -34,6 +35,7 @@ const [
   import('../src/screens/Chat.js'),
   import('../src/dsh-adapter/questions.js'),
   import('./lib/term-test.mjs'),
+  import('../src/components/sidePanel/sidebarBrand.js'),
 ])
 const { render, AlternateScreen, ThemeProvider, Box, Text, useTerminalSize, useInput } = ui
 const { applyPageMargin, applySidePanelOpen, applySidePanelRatio, applySidePanelPanels, getSidePanelRatio } = prefs
@@ -141,9 +143,16 @@ async function mount({ columns = 124, chat = false, fullscreen = true } = {}) {
     exitOnCtrlC: false,
   })
   const cell = (col: number, row: number) => term.buffer.active.getLine(term.buffer.active.baseY + row)?.getCell(col)
+  // Junction contract (SidePanelLayout): the seam tees where the panel bar's
+  // rule meets it — sidebarBrandRows(content rows, panel width) + 1 in
+  // layout coordinates, one row down from the top margin here — and again at
+  // the hint's rule near the bottom. The panel width rides the live
+  // controller so a mid-drag frame asserts its own geometry.
   const frameAt = (chatWidth: number): boolean => {
+    const contentRows = ROWS - 2
+    const brandTee = sidebarBrandRows(contentRows, controller?.panelColumns ?? 0) + 1
     for (let row = 0; row < ROWS - 2; row += 1) {
-      const glyph = row === 1 || row === ROWS - 4 ? '├' : '│'
+      const glyph = row === brandTee || row === ROWS - 4 ? '├' : '│'
       if (cell(INSET + chatWidth, 1 + row)?.getChars() !== glyph) return false
     }
     // The fixture body is blank: an old divider left behind by the diff

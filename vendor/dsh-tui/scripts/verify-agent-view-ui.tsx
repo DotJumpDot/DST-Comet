@@ -583,15 +583,22 @@ console.log('--- S9: dashboard view action + summary ---')
 // ── Chat 层 ────────────────────────────────────────────────────────────────
 console.log('--- Chat: source stack + parent state preservation ---')
 {
-  const [{ Chat }, { QuestionStore }, { LOCAL_COMMANDS, completeCommands }, chatScope] = await Promise.all([
+  const [{ Chat }, { QuestionStore }, { LOCAL_COMMANDS, completeCommands }, chatScope, prefs] = await Promise.all([
     import('../src/screens/Chat.js'),
     import('../src/dsh-adapter/questions.js'),
     import('../src/commands.js'),
     import('../src/dsh-adapter/channel.js'),
+    import('../src/tuiDisplayPrefs.js'),
   ])
   type ChatT = typeof import('../src/screens/Chat.js')
   void (0 as unknown as ChatT)
   void chatScope
+  // DST Comet boots with the side panel open; this phase pins the FULL-WIDTH
+  // chat contracts (unwrapped transcript cards, Ctrl+A → the fullscreen
+  // Subagent Dashboard), so start from the closed panel and restore the
+  // fork default on the way out.
+  const sidebarWasOpen = prefs.getSidePanelOpen()
+  prefs.applySidePanelOpen(false)
 
   const dispatchLog: Array<Record<string, unknown>> = []
   const listeners = new Set<() => void>()
@@ -743,6 +750,7 @@ console.log('--- Chat: source stack + parent state preservation ---')
     stdin.write('\x1b')
     check('C2 Esc 关面板回聊天', await settled(() => screen().includes('please delegate')))
   } finally {
+    prefs.applySidePanelOpen(sidebarWasOpen)
     await instance.unmount()
     term.dispose()
   }
