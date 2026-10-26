@@ -401,8 +401,8 @@ try {
   }
   channelVersion += 1
   for (const listener of [...channelListeners]) listener()
-  await settled(() => has('Doing 2') && has('Finished 2'))
-  check('tasks: tab row shows both tabs with counts', has('Doing 2') && has('Finished 2') && has('Tasks'))
+  await settled(() => has('DOING-TASK-ONE'))
+  check('tasks: tab row shows both tabs with counts', has('Doing 2') && has('Finished 2'))
   check('tasks: Doing is the default tab and hides finished rows',
     has('DOING-TASK-ONE') && has('DOING-TASK-BLOCKED') && !has('DONE-TASK-ONE'))
   check('tasks: the blocked tail renders on the Doing tab', has('blocked'))

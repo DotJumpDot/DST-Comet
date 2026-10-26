@@ -114,9 +114,10 @@ const TASK_GLYPH: Record<TeamTask['status'], { readonly glyph: string; readonly 
 
 /** The team's shared task board, read-only, split into Doing / Finished tabs
  *  (DST Comet: one ever-growing list buried live work under completed rows
- *  the user could not clear). Rows keep the truncation-gated hover tooltip
- *  with the full subject (unreadable tasks on a narrow panel were the
- *  report); fully visible subjects stay tooltip-free. */
+ *  the user could not clear). The tab row uses the house chip style from
+ *  SubagentDetailScene (`inverse` active chip, dim `│` separator) so it
+ *  reads as tabs, not as links after a label. Rows keep the
+ *  truncation-gated hover tooltip with the full subject. */
 function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const { columns } = useTerminalSize()
   const tab = React.useSyncExternalStore(subscribeTaskBoardTab, getTaskBoardTab)
@@ -128,22 +129,26 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
   // subject defeats the ask — under-reporting the budget errs visible).
   const subjectBudget = Math.max(8, columns - 6)
   const rows = tab === 'doing' ? doing : finished
-  const tabButton = (key: TaskBoardTab, label: string, count: number) => {
+  const tabChip = (key: TaskBoardTab, glyph: string, label: string, count: number): React.ReactNode => {
     const active = tab === key
     return (
-      <Box flexShrink={0} onClick={() => { setTaskBoardTab(key) }}>
-        <Text bold={active} color={active ? 'accent' : undefined} dimColor={!active} underline={active}>
-          {` ${label} ${count} `}
-        </Text>
-      </Box>
+      <React.Fragment key={key}>
+        <Box flexShrink={0} onClick={() => { setTaskBoardTab(key) }}>
+          <Text
+            color={active ? 'accent' : undefined}
+            bold={active}
+            inverse={active}
+          >{` ${glyph} ${label} ${count} `}</Text>
+        </Box>
+        <Text dimColor>{key === 'doing' ? '│' : ''}</Text>
+      </React.Fragment>
     )
   }
   return (
     <Box flexDirection="column" marginTop={1}>
       <Box flexDirection="row">
-        <Text dimColor>{t('team-tasks-label')}</Text>
-        {tabButton('doing', t('team-tasks-tab-doing'), doing.length)}
-        {tabButton('finished', t('team-tasks-tab-finished'), finished.length)}
+        {tabChip('doing', '◐', t('team-tasks-tab-doing'), doing.length)}
+        {tabChip('finished', '●', t('team-tasks-tab-finished'), finished.length)}
       </Box>
       {rows.length === 0 && (
         <Text dimColor>{'  ' + t(tab === 'doing' ? 'team-tasks-doing-empty' : 'team-tasks-finished-empty')}</Text>

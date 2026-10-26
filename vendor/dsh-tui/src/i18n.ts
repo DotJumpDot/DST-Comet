@@ -1883,7 +1883,6 @@ const dict = {
   'team-lead-row-peer': { zh: 'lead', en: 'lead' },
   'team-self-mark': { zh: '当前会话', en: 'this session' },
   'team-others-title': { zh: '其他子代理', en: 'Other subagents' },
-  'team-tasks-label': { zh: '任务板', en: 'Tasks' },
   'team-tasks-tab-doing': { zh: '进行中', en: 'Doing' },
   'team-tasks-tab-finished': { zh: '已完成', en: 'Finished' },
   'team-tasks-doing-empty': { zh: '暂无进行中任务', en: 'No active tasks' },

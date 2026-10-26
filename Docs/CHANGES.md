@@ -4,6 +4,22 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — tab chips + Mother wake-up (retest round)
+
+| File | Why |
+|---|---|
+| `src/components/SubagentDashboard.tsx` | the Doing/Finished tabs restyled to the house chip pattern from SubagentDetailScene (inverse active chip with status glyph, dim `│` separator) — the first cut looked like links after a stray "Tasks" label, underlined and oddly placed per user feedback; no standalone label line anymore |
+| `scripts/verify-agents-side-panel.tsx` | tab-row assertion settles on the task row first (the old one raced the fixture bump); label-free tab row |
+| `src/i18n.ts` | dropped the now-unused `team-tasks-label` key |
+| `engine/tool-agent-team/src/index.ts` | `human_task_create` by a TEAMMATE now messages the Lead ("human wall: …") — the board mirror alone only woke Lead-side waiters already waiting, so a Mother that called `wait_agent` afterwards slept through a parked lane (user-reported wake-up gap); the Lead parking itself still does not self-notify |
+| `engine/tool-agent-team/tests/tool-agent-team.spec.ts` | pins both paths (lead-caller silent, teammate-caller notifies with lane in the text) |
+
+Companion Constellation-MCP commit (same round): per-owner scope rules with
+`scope_clear` (a 10-lane run no longer unions all engagements; stale rules
+can be dropped instead of silently denying the next run), `browser_map
+{owner}` scoping, sticky repo default for repo_status/repo_commit, and
+http_diff no longer renders a blank A/B divergence line as empty.
+
 ## 2026-10-27 — task-board Doing/Finished tabs (user request)
 
 | File | Why |
