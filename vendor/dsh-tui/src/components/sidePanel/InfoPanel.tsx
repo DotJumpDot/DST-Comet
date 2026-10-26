@@ -180,8 +180,10 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
       <ScrollBox ref={scrollRef} flexDirection="column" maxHeight={Math.max(3, height)} flexGrow={1}>
         <Section title={t('info-section-session')}>
           <Row label={t('info-row-title')} value={channel.sessionTitle !== '' ? channel.sessionTitle : none} />
-          <Row label={t('info-row-session-id')} value={channel.sessionId !== '' ? '#' + channel.sessionId.slice(0, 8) : none} />
-          <Row label={t('info-row-agent-id')} value={channel.agentId !== '' ? '#' + channel.agentId.slice(0, 8) : none} />
+          {/* oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: partial fixture channels */}
+          <Row label={t('info-row-session-id')} value={typeof channel.sessionId === 'string' && channel.sessionId !== '' ? '#' + channel.sessionId.slice(0, 8) : none} />
+          {/* oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: partial fixture channels */}
+          <Row label={t('info-row-agent-id')} value={typeof channel.agentId === 'string' && channel.agentId !== '' ? '#' + channel.agentId.slice(0, 8) : none} />
           <Row label={t('info-row-cwd')} value={displayCwd !== '' ? displayCwd : none} />
           <Row label={t('info-row-branch')} value={channel.gitBranch !== undefined && channel.gitBranch !== '' ? channel.gitBranch : none} />
         </Section>
