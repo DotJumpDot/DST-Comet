@@ -20,7 +20,7 @@ import { useRevealVersion } from '../../hooks/useRevealVersion.js'
 import { primaryComboString } from '../../utils/keymap.js'
 import { agentMessageStateColor, agentMessageStateText } from './TranscriptLeaves.js'
 import type { AgentMessageState } from './agentTeam.js'
-import { liveOutputMaxLines, liveOutputView } from './liveOutputLines.js'
+import { fitOutputLine, liveOutputMaxLines, liveOutputView } from './liveOutputLines.js'
 import { isPatchDiff, parseFilePatch, patchHeader, type ToolPatchDiff } from '../diffPatch.js'
 import { toolCardWash, toolToneColor, toolToneFamily, toolWashOf, type ToolToneFamily } from './toolTone.js'
 
@@ -609,6 +609,12 @@ function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguag
     return ''
   })
   if (singleLine && title !== undefined) {
+    // Pre-cut to the budget instead of trusting flex: Yoga shrinks every
+    // child a little, so a truncate-end title alone still lets the elapsed
+    // chip wrap onto a second row. The tooltip gate above keeps comparing
+    // the ORIGINAL flatTitle, so a cut header still discloses on hover.
+    const cutTo = (width: number): string | undefined =>
+      width <= 0 ? '' : stringWidth(flatTitle ?? '') > width ? fitOutputLine(flatTitle ?? '', width) : flatTitle
     if (isTerminal) {
       return (
         <>
@@ -616,14 +622,14 @@ function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguag
             <Text bold color={nameColor} wrap="truncate-end">{name}</Text>
           </Box>
           <Box flexWrap="nowrap" overflow="hidden" {...headerTooltip}>
-            <Text wrap="truncate-end">{`(${flatTitle ?? ''})`}</Text>
+            <Text wrap="truncate-end">{`(${cutTo(headerTextBudget - stringWidth(name) - 2) ?? ''})`}</Text>
           </Box>
         </>
       )
     }
     return (
       <Box flexWrap="nowrap" overflow="hidden" {...headerTooltip}>
-        <Text bold color={nameColor} wrap="truncate-end">{flatTitle}</Text>
+        <Text bold color={nameColor} wrap="truncate-end">{cutTo(headerTextBudget) ?? ''}</Text>
       </Box>
     )
   }
@@ -1029,8 +1035,8 @@ export function AssistantToolUseMessage({
           />
           <HeaderTitle name={name} title={headerTitle} isTerminal={headerIsTerminal} folded={foldedHeader} displayArgs={displayArgs} argsLanguage={argsLanguage} nameColor={toolToneColor(toneFamily)} filePath={filePath} onOpenFile={onOpenFile} metaTooltip={() => toolCardMetaTooltip(tool, isRunning, isError)} headerTextBudget={headerTextBudget} singleLine={!verbose && (oneLineCard || isError || isRunning)} />
           {!isRunning && (
-            <Box flexWrap="nowrap">
-              <Text dimColor={!hovered}>{elapsedText}</Text>
+            <Box flexWrap="nowrap" flexShrink={0}>
+              <Text dimColor={!hovered} wrap="truncate-end">{elapsedText}</Text>
             </Box>
           )}
           {oneLineCard && !hovered && (

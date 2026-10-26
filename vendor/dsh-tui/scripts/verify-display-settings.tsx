@@ -12,6 +12,8 @@ const [
   { AssistantToolUseMessage },
   { DEFAULT_STATUS_BAR, formatContextUsage, normalizeStatusBar, normalizeToolBackground },
   { homeDir },
+  { getTheme },
+  { toolCardWash, toolToneFamily },
 ] = await Promise.all([
   import('node:assert'),
   import('node:stream'),
@@ -22,6 +24,8 @@ const [
   import('../src/components/messages/AssistantToolUseMessage.js'),
   import('../src/tuiDisplayPrefs.js'),
   import('../src/utils/paths.js'),
+  import('../src/theme.js'),
+  import('../src/components/messages/toolTone.js'),
 ])
 
 const sleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms))
@@ -460,8 +464,18 @@ const noneAnsi = await renderToolBackground('none')
 const subtleAnsi = await renderToolBackground('subtle')
 const strongAnsi = await renderToolBackground('strong')
 check('tool background modes map to stable dark-theme ANSI backgrounds', () => {
-  const subtleBg = '\x1b[48;2;28;35;48m'
-  const strongBg = '\x1b[48;2;36;43;58m'
+  // Derive, don't freeze: since the per-tool tone wash, the surface blends
+  // the theme card shade with the family tone, so hard-coded RGB literals
+  // drift with every theme token tweak. The gate pins the pipeline —
+  // theme + family + wash -> rgb() -> truecolor ANSI — instead.
+  const ansiOf = (wash: 'subtle' | 'strong'): string => {
+    const rgb = toolCardWash(getTheme('dark'), toolToneFamily('read'), wash) ?? ''
+    const m = /(\d+),\s*(\d+),\s*(\d+)/.exec(rgb)
+    if (m === null) throw new Error(`wash did not resolve to rgb(): ${rgb}`)
+    return `\x1b[48;2;${m[1]};${m[2]};${m[3]}m`
+  }
+  const subtleBg = ansiOf('subtle')
+  const strongBg = ansiOf('strong')
   assert.ok(!noneAnsi.includes(subtleBg) && !noneAnsi.includes(strongBg))
   assert.ok(subtleAnsi.includes(subtleBg), 'subtle background ANSI missing')
   assert.ok(strongAnsi.includes(strongBg), 'strong background ANSI missing')

@@ -56,6 +56,18 @@ Follow-up hardening (same pass):
 | `scripts/verify-side-panel-layout.tsx` | bottom-placement unit + render checks (221 checks) |
 | `vendor/dsh-tui/cordis.patch.yml` + `patch-surface.snapshot.json` | dropped the `tool-ralph` disable row (0.2.x runtime no longer registers the entry — the row only logged `patch: entry not found` at boot); snapshot regenerated |
 
+One-line card hardening + background-off ask (same day):
+
+| File | Why |
+|---|---|
+| `src/components/messages/AssistantToolUseMessage.tsx` | single-line titles pre-cut to `headerTextBudget` (flex truncation alone let the elapsed chip wrap onto a 2nd row — Pwsh/MCP long titles rendered 2 lines); elapsed chip `flexShrink=0` + truncate-end belt |
+| `src/settings/definitions.ts` | `toolBackground` None option relabeled "None (text color only)" + hint explains the transparent row (the off-switch already existed; made it discoverable) |
+| `scripts/verify-tool-tooltip-gating.tsx` | case G: settled one-line Pwsh/MCP cards with over-budget titles occupy exactly one viewport row (chip + ▸ on the header line, next row blank) |
+| `scripts/verify-display-settings.tsx` | wash gate derives expected ANSI from `getTheme` + `toolCardWash` instead of frozen RGB literals (stale since the per-tool tone blend; subtle now blends read tone → 44;59;72) |
+
+User preset: `~/.dsh-tui/settings.json` `values.toolBackground` set to `none`
+so the next boot shows tone-colored names on a transparent row.
+
 Known environment noise (not fork code): `dsh --profile dsh-tui` still logs one
 `patch: entry "tool-ralph" not found` at boot. Source: the profile resolves
 the fork's `@deepseek-ai/dsh-web-app` peer from the stale shared

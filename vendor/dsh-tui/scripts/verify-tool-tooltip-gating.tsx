@@ -16,6 +16,9 @@
  *     完整标题 + 元数据附注（回归：这是 tooltip 的原始用途）。
  *  F. 折叠脚本 + 非零退出码 → 悬停弹出完整脚本，附注带「退出码 N」
  *     （元数据只在内容真隐藏的浮层里作为附注出现）。
+ *  G. settled 单行卡（Pwsh 终端 / MCP generic）长标题 → 预算预裁后
+ *     整卡恰好一行：耗时 chip 与 ▸ 同在表头行，下一屏行为空（回归：
+ *     曾把耗时 chip 挤到第二行）。
  *
  * Run: `node --import tsx/esm scripts/verify-tool-tooltip-gating.tsx`
  */
@@ -254,6 +257,42 @@ try {
   check('F 浮层附注带元数据（结束时刻 + 退出码）', await settled(() => screenHas(term, '结束') && screenHas(term, '退出码 7')))
   hover(stdin, 1, 1)
   check('F 移开即隐藏工具提示（脚本尾行消失）', await settled(() => !screenHas(term, 'Select-Object -First 10 Name')))
+
+  // --- G. DST Comet 单行卡回归（用户实测：Pwsh/MCP 卡仍见两行）：
+  //       settled 单行卡的长标题必须预算预裁，耗时 chip 与 ▸ 留在表头
+  //       行内，下一屏行为空——整卡恰好一行。
+  instance.rerender(cardTree('oneline-pwsh', {
+    name: 'pwsh',
+    startedAt: Date.now() - 4_000,
+    durationMs: 4_000,
+    callView: { card: 'terminal', title: 'Get-ChildItem Progress/bugcrowd/klaviyo, Methods -File | Sort-Object LastWriteTime -Descending | Select-Object -First 8 Name, LastWriteTime' },
+    resultView: { card: 'terminal', output: '', exitCode: 0 },
+    resultFull: '',
+  }))
+  check('场景 G 就绪：Pwsh 单行卡表头渲染', await settled(() => screenHas(term, 'Pwsh(')))
+  {
+    const lines = viewportLines(term)
+    const at = lines.findIndex(line => line.includes('Pwsh('))
+    check('G Pwsh 长命令表头行内截断（…）', at !== -1 && lines[at]!.includes('…'))
+    check('G Pwsh 耗时 chip 与 ▸ 同在表头行', at !== -1 && lines[at]!.includes('▸') && lines[at]!.includes('·'))
+    check('G Pwsh 单行卡下一行为空（无换行残留）', at !== -1 && at + 1 < lines.length && lines[at + 1]!.trim() === '')
+  }
+  instance.rerender(cardTree('oneline-mcp', {
+    name: 'mcp__playwright__browser_evaluate',
+    startedAt: Date.now() - 4_000,
+    durationMs: 4_000,
+    callView: { card: 'generic', title: 'Mcp__playwright__browser_evaluate({"function": "() => ({ url: location.href, text: (document.body.innerText||\'\').replace(/\\n{2,}/g,\'\\n\').slice(0,600), inputs: [...document.querySelectorAll(\'input\')].length })"})' },
+    resultView: { card: 'generic', output: '' },
+    resultFull: '',
+  }))
+  check('场景 G 就绪：MCP 单行卡表头渲染', await settled(() => screenHas(term, 'Mcp__playwright__browser_evaluate(')))
+  {
+    const lines = viewportLines(term)
+    const at = lines.findIndex(line => line.includes('Mcp__playwright__browser_evaluate('))
+    check('G MCP 长 args 表头行内截断（…）', at !== -1 && lines[at]!.includes('…'))
+    check('G MCP 耗时 chip 与 ▸ 同在表头行', at !== -1 && lines[at]!.includes('▸') && lines[at]!.includes('·'))
+    check('G MCP 单行卡下一行为空（无换行残留）', at !== -1 && at + 1 < lines.length && lines[at + 1]!.trim() === '')
+  }
 
   instance.unmount()
   await sleep(100) // 固定窗:pacing 收尾 flush 节奏，之后不再断言
