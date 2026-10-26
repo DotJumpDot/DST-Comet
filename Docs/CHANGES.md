@@ -22,6 +22,23 @@ Engine fork (code-only this pass, deliberately NOT installed): `engine/`
 workspace forks the three Agent Teams packages per
 `Advice/agent-team-hunt-run-2026-10-26.md` — see `engine/README.md`.
 
+## 2026-10-26 — engine fork installed + Constellation-MCP (browser layer + engagement tools)
+
+| File | Why |
+|---|---|
+| `engine/agent-team-profile/package.json` | sibling agent-team/tool-agent-team moved from `dependencies` (`workspace:*`, which `pnpm pack` rewrites to an unresolvable exact `0.2.1-rc.2-comet.1`) to `peerDependencies` with a literal range — the profile tarball now installs without registry lookups |
+
+Install-state notes (outside the repo): all three engine fork packages are
+live in the `dsh-tui` profile at `0.2.1-rc.2-comet.1` (`dsh plugin add` ×3,
+one `allow-version` exemption for the fork); `team_snapshot`,
+`human_task_*`, `lane_freeze/resume` and `spawn_teammate {model,effort}` are
+registered. The old `@playwright/mcp` server entry in the profile patch was
+replaced by Constellation-MCP (`C:\Code\Constellation-MCP`, serverName kept
+as `playwright` so `mcp__playwright__*` prompts/skills keep working) —
+per-owner browser isolation, tab leases, `browser_map`, scope guard,
+mail/OTP, `http_request` cookie jars, OOB receiver, secrets, `repo_commit`.
+
+
 ## 2026-10-26 — one-line card hardening + tool background off (user preset)
 
 | File | Why |

@@ -36,12 +36,12 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@deepseek-ai/dsh-experimental-agent-team": "workspace:*",
-    "@deepseek-ai/dsh-experimental-client-ui-agent-team": "0.2.1-rc.3",
-    "@deepseek-ai/dsh-experimental-tool-agent-team": "workspace:*"
+    "@deepseek-ai/dsh-experimental-client-ui-agent-team": "0.2.1-rc.3"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "~4.0.5"
+    "@deepseek-ai/cordis": "~4.0.5",
+    "@deepseek-ai/dsh-experimental-agent-team": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.2-comet.1",
+    "@deepseek-ai/dsh-experimental-tool-agent-team": "0.2.1-rc.2 || 0.2.1-rc.3 || 0.2.1-rc.2-comet.1"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "4.0.5"
