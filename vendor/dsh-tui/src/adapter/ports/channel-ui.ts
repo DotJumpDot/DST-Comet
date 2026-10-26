@@ -265,6 +265,11 @@ export interface ChannelUi {
   /** Terminal-card header folding (settings `dsh-tui.foldTerminalCommand`):
    *  collapse a multi-line command title to its first line + count hint. */
   readonly foldTerminalCommand: boolean
+  /** One-line tool cards (DST Comet, settings `dsh-tui.oneLineToolCards`;
+   *  on by default): collapsed terminal (Bash/Pwsh) and generic (MCP) cards
+   *  render their header line only — no preview body. Click / Ctrl+O
+   *  expands. Error bodies and diffs keep their collapsed previews. */
+  readonly oneLineToolCards: boolean
   /** Turn-usage ledger row in the transcript (settings `dsh-tui.turnUsageRow`;
    *  off by default): the quiet right-aligned line that closes each turn.
    *  Display only: the ledger itself is always collected for `turnUsage`,
@@ -883,6 +888,7 @@ export interface ChannelUi {
   setScrollGutter(mode: ScrollGutterMode): void
   setPageMargin(setting: PageMarginSetting): void
   setFoldTerminalCommand(enabled: boolean): void
+  setOneLineToolCards(enabled: boolean): void
   setTurnUsageRow(enabled: boolean): void
   setPromptSessionLabel(enabled: boolean): void
   setExpandEditor(enabled: boolean): void

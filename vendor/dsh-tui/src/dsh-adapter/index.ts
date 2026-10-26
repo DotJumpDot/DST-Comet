@@ -166,6 +166,11 @@ export interface Config {
    *  `+N lines` hint; Ctrl+O / clicking the card expands it. Default off —
    *  the full title keeps rendering. */
   foldTerminalCommand?: boolean
+  /** DST Comet one-line tool cards (settings `dsh-tui.oneLineToolCards`):
+   *  collapsed terminal (Bash/Pwsh) and generic (MCP) cards render their
+   *  header line only. Click / Ctrl+O expands. Default on — the Comet
+   *  compact-transcript look; `false` restores the multi-line previews. */
+  oneLineToolCards?: boolean
   /** Turn-usage ledger row (settings `dsh-tui.turnUsageRow`): the quiet
    *  right-aligned line that closes each turn in the transcript (tokens
    *  in/out, cache split, span, retries). Off by default; the ledger data
@@ -362,6 +367,7 @@ export const Config: Schema<Config, RuntimeConfig<Config>> = editableConfig<Conf
     value => normalizePageMargin(value),
   ),
   foldTerminalCommand: Schema.boolean().default(false),
+  oneLineToolCards: Schema.boolean().default(true),
   turnUsageRow: Schema.boolean().default(false),
   promptSessionLabel: Schema.boolean().default(false),
   expandEditor: Schema.boolean().default(true),

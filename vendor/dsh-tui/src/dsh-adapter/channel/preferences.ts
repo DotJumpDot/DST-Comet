@@ -14,7 +14,7 @@ function applyMinimalUi(getState: () => Pick<ChannelState, 'minimalUi' | 'emit'>
   state.emit()
 }
 
-export function createPreferences(getState: () => Pick<ChannelState, 'diffLayout' | 'thinkingFold' | 'jobGroupFold' | 'toolBackground' | 'scrollGutter' | 'pageMargin' | 'foldTerminalCommand' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' | 'statusBar' | 'whale' | 'whaleIdle' | 'whaleGirl' | 'splashFont' | 'brand' | 'minimalUi' | 'emit'>): Pick<ChannelState, 'setDiffLayout' | 'setThinkingFold' | 'setJobGroupFold' | 'setToolBackground' | 'setScrollGutter' | 'setPageMargin' | 'setFoldTerminalCommand' | 'setTurnUsageRow' | 'setPromptSessionLabel' | 'setExpandEditor' | 'setSmoothStreaming' | 'setStatusBar' | 'setWhale' | 'setWhaleIdle' | 'setWhaleGirl' | 'setSplashFont' | 'setBrand' | 'setMinimalUi' | 'setMinimal'> {
+export function createPreferences(getState: () => Pick<ChannelState, 'diffLayout' | 'thinkingFold' | 'jobGroupFold' | 'toolBackground' | 'scrollGutter' | 'pageMargin' | 'foldTerminalCommand' | 'oneLineToolCards' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' | 'statusBar' | 'whale' | 'whaleIdle' | 'whaleGirl' | 'splashFont' | 'brand' | 'minimalUi' | 'emit'>): Pick<ChannelState, 'setDiffLayout' | 'setThinkingFold' | 'setJobGroupFold' | 'setToolBackground' | 'setScrollGutter' | 'setPageMargin' | 'setFoldTerminalCommand' | 'setOneLineToolCards' | 'setTurnUsageRow' | 'setPromptSessionLabel' | 'setExpandEditor' | 'setSmoothStreaming' | 'setStatusBar' | 'setWhale' | 'setWhaleIdle' | 'setWhaleGirl' | 'setSplashFont' | 'setBrand' | 'setMinimalUi' | 'setMinimal'> {
   return {
 
     setDiffLayout(layout) {
@@ -67,6 +67,13 @@ export function createPreferences(getState: () => Pick<ChannelState, 'diffLayout
       const state = getState()
       if (enabled === state.foldTerminalCommand) return
       state.foldTerminalCommand = enabled
+      state.emit()
+    },
+
+    setOneLineToolCards(enabled) {
+      const state = getState()
+      if (enabled === state.oneLineToolCards) return
+      state.oneLineToolCards = enabled
       state.emit()
     },
 

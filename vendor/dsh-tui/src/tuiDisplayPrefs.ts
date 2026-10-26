@@ -692,7 +692,9 @@ export const subscribeSidePanelSplitEnabled = sidePanelSplitEnabledStore.subscri
 export const getSidePanelSplitEnabled = sidePanelSplitEnabledStore.get
 export const applySidePanelSplitEnabled = sidePanelSplitEnabledStore.apply
 
-const sidePanelOpenStore = createLiveSetting<boolean>(false, value => normalizeBoolean(value, false))
+// DST Comet: the right sidebar opens by default (the OpenCode-style
+// always-visible panel column); Ctrl+B still collapses it.
+const sidePanelOpenStore = createLiveSetting<boolean>(true, value => normalizeBoolean(value, true))
 export const subscribeSidePanelOpen = sidePanelOpenStore.subscribe
 export const getSidePanelOpen = sidePanelOpenStore.get
 export const applySidePanelOpen = sidePanelOpenStore.apply

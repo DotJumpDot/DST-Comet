@@ -1,15 +1,15 @@
 import type { UserConfig } from 'tsdown'
 
 const clientExternals = [
-  'react',
   '@deepseek-ai/cordis',
+  '@deepseek-ai/dsh-client-runtime/client',
   '@deepseek-ai/dsh-client-ui-settings/client',
   '@deepseek-ai/dsh-client-ui-tool/client',
 ] as const
 
 export default [
   {
-    entry: { index: 'src/index.ts', 'profile-loader': 'src/profile-loader.ts', 'client-api': 'src/client.ts', typert: 'src/typert.ts' },
+    entry: { index: 'src/index.ts', 'profile-loader': 'src/profile-loader.ts', 'client-api': 'src/client.ts' },
     outDir: 'lib', format: ['esm'], fixedExtension: false, platform: 'node', target: 'node22.19',
     dts: true, sourcemap: true, clean: true,
     deps: { neverBundle: [/^@deepseek-ai\//, /^@dsh-std\//, /^node:/] },

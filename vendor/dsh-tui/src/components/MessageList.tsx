@@ -229,6 +229,7 @@ function signatureParts(
   thinkingFold: string,
   diffLayout: string,
   foldTerminalCommand: boolean,
+  oneLineToolCards: boolean,
   model: string,
   failureHintRowId: number | null | undefined,
   failureHint: string | undefined,
@@ -269,6 +270,7 @@ function signatureParts(
         // diffLayout changes the body's — without it, a /settings toggle
         // leaves already-mounted tool cards at their stale cached height.
         foldTerminalCommand,
+        oneLineToolCards,
         tool?.status ?? '',
         tool?.resultText?.length ?? 0,
         tool?.resultFull?.length ?? 0,
@@ -384,6 +386,7 @@ export function MessageList({
   jobGroupFold = 'auto',
   toolBackground = 'none',
   foldTerminalCommand = false,
+  oneLineToolCards = true,
   turnUsageRow = false,
   smoothStreaming = false,
   activityFrames,
@@ -433,6 +436,8 @@ export function MessageList({
   toolBackground?: ToolBackground
   /** Terminal-card header folding from the live channel settings. */
   foldTerminalCommand?: boolean
+  /** DST Comet one-line tool cards from the live channel settings. */
+  oneLineToolCards?: boolean
   /** Turn-usage ledger row from the live channel settings (default off):
    *  off filters the rows out of the visible window BEFORE virtualization —
    *  the ledger itself keeps feeding `turnUsage`, /tokens, /status and the
@@ -911,6 +916,7 @@ export function MessageList({
         thinkingFold,
         diffLayout,
         foldTerminalCommand,
+        oneLineToolCards,
         model,
         failureHintRowId,
         failureHint,
@@ -1588,6 +1594,7 @@ export function MessageList({
               thinkingFold={thinkingFold}
               toolBackground={toolBackground}
               foldTerminalCommand={foldTerminalCommand}
+              oneLineToolCards={oneLineToolCards}
               smoothStreaming={smoothStreaming}
               fresh={row.fresh === true}
               revealVersion={revealVersion}
@@ -1682,6 +1689,8 @@ type MemoRowProps = {
   toolBackground: ToolBackground
   /** Terminal-card header folding (forwarded to tool cards). */
   foldTerminalCommand: boolean
+  /** DST Comet one-line tool cards (forwarded to tool cards). */
+  oneLineToolCards: boolean
   /** Working-activity preset name; drives the subagent card's running glyph. */
   activityFrames: string | undefined
   background: 'messageActionsBackground' | undefined
@@ -1782,6 +1791,7 @@ function TranscriptRow({
   thinkingFold,
   toolBackground,
   foldTerminalCommand,
+  oneLineToolCards,
   activityFrames,
   background,
   toolCallId,
@@ -2024,6 +2034,7 @@ function TranscriptRow({
             fresh={fresh}
             revealVersion={revealVersion}
             foldTerminalCommand={foldTerminalCommand}
+            oneLineToolCards={oneLineToolCards}
             onClick={foldOnClick}
             onOpenFile={onOpenFile}
             images={images}

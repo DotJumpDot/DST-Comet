@@ -12,12 +12,10 @@
 | [`@dsh-std/lifecycle`](lifecycle/README.zh.md) | Activation instance、cleanup 与 publication barrier | 否 |
 | [`@dsh-std/sdk`](sdk/README.zh.md) | TypeScript facet 与 typed protocol helper | 否 |
 | [`@dsh-std/command`](command/README.zh.md) | 声明式用户命令树 | 否 |
-| [`@dsh-std/ui-browser`](ui-browser/README.md) | 可选的 browser-realm UI surface 与 module ABI | 否 |
 | [`@dsh-std/storage`](storage/README.zh.md) | Component 私有 JSON 键值存储 | 否 |
 | [`@dsh-std/messages`](messages/README.zh.md) | 只读消息观察事件 | 否 |
 | [`@dsh-std/model`](model/README.zh.md) | ModelProvider 资源与共享 ModelCatalog | 否 |
 | [`@dsh-std/tool`](tool/README.zh.md) | 工具发现与实时可用性 | 否 |
-| [`@dsh-std/skill`](skill/README.zh.md) | 声明式、按需加载的 Skill 指令资源 | 否 |
 | [`@dsh-std/presentation`](presentation/README.zh.md) | 调用作用域内面向用户的操作 | 否 |
 | [`@dsh-std/connection`](connection/README.zh.md) | 端点协商与实现无关的调用 | 否 |
 | [`@dsh-std/adapter-dsh`](adapter-dsh/README.zh.md) | DeepSeek Harness 与 Cordis 集成 | 是 |

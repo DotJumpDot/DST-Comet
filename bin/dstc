@@ -1,0 +1,24 @@
+#!/bin/sh
+# dstc — DST Comet launcher (bash). Mirrors bin/dstc.cmd.
+set -e
+: "${NODE_ENV:=production}"
+export NODE_ENV
+if [ -n "$DSH_TUI_WORKSPACE" ]; then cd "$DSH_TUI_WORKSPACE"; fi
+
+command -v dsh >/dev/null 2>&1 || {
+  echo "[dstc] dsh CLI not found. Install: npm install -g @deepseek-ai/dsh" >&2
+  exit 1
+}
+
+ARGS=""
+resume=""
+for a in "$@"; do
+  if [ "$a" = "--resume" ] && [ -f "$HOME/.dsh-tui/resume.txt" ]; then
+    resume=$(cat "$HOME/.dsh-tui/resume.txt")
+    export DSH_TUI_RESUME_SESSION="$resume"
+  else
+    ARGS="$ARGS \"$a\""
+  fi
+done
+
+eval "dsh --profile dsh-tui $ARGS"

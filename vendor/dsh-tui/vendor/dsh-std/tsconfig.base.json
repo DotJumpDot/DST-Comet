@@ -5,9 +5,6 @@
     "moduleResolution": "NodeNext",
     "paths": {
       "@dsh-std/core": ["./packages/core/src/index.ts"],
-      "@dsh-std/core/identity": ["./packages/core/src/identity.ts"],
-      "@dsh-std/core/json": ["./packages/core/src/json.ts"],
-      "@dsh-std/core/version": ["./packages/core/src/version.ts"],
       "@dsh-std/manifest": ["./packages/manifest/src/index.ts"],
       "@dsh-std/composition": ["./packages/composition/src/index.ts"],
       "@dsh-std/lifecycle": ["./packages/lifecycle/src/index.ts"],
@@ -20,7 +17,6 @@
       "@dsh-std/tool": ["./packages/tool/src/index.ts"],
       "@dsh-std/presentation": ["./packages/presentation/src/index.ts"],
       "@dsh-std/session": ["./packages/session/src/index.ts"],
-      "@dsh-std/skill": ["./packages/skill/src/index.ts"],
       "@dsh-std/workspace": ["./packages/workspace/src/index.ts"]
     },
     "strict": true,

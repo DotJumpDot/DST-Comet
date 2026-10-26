@@ -114,6 +114,8 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
   const jobsText = jobs !== undefined ? jobsLive + '/' + jobs.length : none
   const subagents = channel.subagents
   const subagentsText = subagents !== undefined ? String(subagents.length) : none
+  // DST Comet: the per-turn MCP snapshot (same lines the /mcp command prints).
+  const mcpLines = channel.mcpStatus()
 
   // 标签列取「本语言最长标签」与「内容宽一半」的较小者：28 列时标签
     // 先让路（截断），值列保住至少一半——点名字段的前缀必须仍可读。
@@ -202,6 +204,22 @@ export function InfoPanel({ width, height, focused, visible }: PanelProps): Reac
           />
           <Row label={t('info-row-jobs')} value={jobsText} />
           <Row label={t('info-row-subagents')} value={subagentsText} />
+        </Section>
+        <Section title={t('info-section-mcp')}>
+          {/* DST Comet: per-turn MCP snapshot (the /mcp report source). Rows
+              skip the report's own heading; the row's status word colors it. */}
+          {(mcpLines.length === 0 ? [t('backend-mcp-loading')] : mcpLines).map((line, index) => {
+            const needsAuth = line.includes('needs-auth')
+            const connected = line.includes('connected')
+            return (
+              <Row
+                key={index}
+                label={index === 0 ? 'MCP' : ''}
+                value={line.trim() === '' ? none : line.trim()}
+                valueColor={needsAuth ? 'warning' : connected ? 'success' : undefined}
+              />
+            )
+          })}
         </Section>
       </ScrollBox>
     </Box>

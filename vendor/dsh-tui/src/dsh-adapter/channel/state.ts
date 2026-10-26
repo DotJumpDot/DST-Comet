@@ -97,6 +97,8 @@ export interface ChannelLaunchOptions {
   scrollGutter?: ScrollGutterMode
   pageMargin?: PageMarginSetting
   foldTerminalCommand?: boolean
+  /** DST Comet one-line tool cards; absent → on (the Comet default). */
+  oneLineToolCards?: boolean
   turnUsageRow?: boolean
   promptSessionLabel?: boolean
   expandEditor?: boolean
@@ -196,7 +198,7 @@ export function createInitialChannelView(
   'activityFrames' | 'configuredProvider' | 'configuredModel' |
   'configuredPreset' | 'configuredActivityFrames' | 'configuredLang' | 'diffLayout' |
   'thinkingFold' | 'jobGroupFold' | 'toolBackground' | 'scrollGutter' | 'pageMargin' |
-  'foldTerminalCommand' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' |
+  'foldTerminalCommand' | 'oneLineToolCards' | 'turnUsageRow' | 'promptSessionLabel' | 'expandEditor' | 'smoothStreaming' |
   'statusBar' | 'whale' | 'whaleIdle' | 'splashFont' | 'brand' | 'minimalUi' | 'activityEnabled' | 'contextBarEnabled' |
   'statusBar' | 'whale' | 'whaleIdle' | 'whaleGirl' | 'minimalUi' | 'activityEnabled' | 'contextBarEnabled' |
   'agentPreset' | 'goal' | 'todos' | 'loadedContext' | 'pending' | 'commandList' |
@@ -218,6 +220,7 @@ export function createInitialChannelView(
     jobGroupFold: normalizeJobGroupFold(options.jobGroupFold),
     toolBackground: normalizeToolBackground(options.toolBackground), scrollGutter: normalizeScrollGutter(options.scrollGutter),
     pageMargin: normalizePageMargin(options.pageMargin), foldTerminalCommand: options.foldTerminalCommand === true,
+    oneLineToolCards: options.oneLineToolCards !== false,
     turnUsageRow: options.turnUsageRow === true,
     promptSessionLabel: options.promptSessionLabel === true, expandEditor: options.expandEditor !== false,
     smoothStreaming: options.smoothStreaming !== false, statusBar: normalizeStatusBar(options.statusBar),

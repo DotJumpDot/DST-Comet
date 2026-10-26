@@ -1711,6 +1711,8 @@ const dict = {
   'thinking-disabled': { zh: '隐藏', en: 'Hidden' },
   'thinking-disabled-desc': { zh: '隐藏思考过程；模型仍会照常思考', en: 'Hide reasoning; the model will still think as usual' },
   'thinking-label': { zh: '思考', en: 'Thinking' },
+  // DST Comet: the folded thinking header carries the reasoning volume.
+  'thinking-lines': { zh: '{{n}} 行', en: '{{n}} lines' },
   // Thinking reported only as an estimated token count (no thinking text).
   'thinking-tokens-live': { zh: '思考中 · ~{{n}} tokens', en: 'Thinking · ~{{n}} tokens' },
   'thinking-tokens-done': { zh: '已思考 · ~{{n}} tokens', en: 'Thought · ~{{n}} tokens' },
@@ -2331,6 +2333,8 @@ const dict = {
   'info-section-model': { zh: '模型', en: 'Model' },
   'info-section-context': { zh: '上下文', en: 'Context' },
   'info-section-runtime': { zh: '运行时', en: 'Runtime' },
+  // DST Comet: InfoPanel MCP section.
+  'info-section-mcp': { zh: 'MCP', en: 'MCP' },
   'info-row-title': { zh: '标题', en: 'Title' },
   'info-row-session-id': { zh: '会话 ID', en: 'Session ID' },
   'info-row-agent-id': { zh: '代理 ID', en: 'Agent ID' },

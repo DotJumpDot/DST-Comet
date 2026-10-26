@@ -1,10 +1,16 @@
-import { type ApiReference, type ProtocolCatalog, type ProtocolDefinition, type ProtocolIssue, type ProtocolNegotiationInput, type ProtocolRequirement, type ProtocolSupport } from '@dsh-std/core'
-import { validateApiReference } from '@dsh-std/core/identity'
+import {
+  validateApiReference,
+  type ApiReference,
+  type ProtocolCatalog,
+  type ProtocolDefinition,
+  type ProtocolIssue,
+  type ProtocolNegotiationInput,
+  type ProtocolRequirement,
+  type ProtocolSupport,
+} from '@dsh-std/core'
 import type { ManifestDefinitionCatalog, ManifestExtension } from '@dsh-std/manifest'
 
 export const API_VERSION = 'ui.dsh/v1alpha1'
-export const API_VERSION_V2 = 'ui.dsh/v1alpha2'
-export type ContributionHostApiVersion = typeof API_VERSION | typeof API_VERSION_V2
 export const CONTRIBUTION_HOST_KIND = 'ContributionHost'
 export const CONTRIBUTION_KIND = 'UiContribution'
 
@@ -18,10 +24,6 @@ export interface UiSurfaceRequirement extends ApiReference {
 
 export interface ContributionHostRequirementSpec {
   readonly surfaces: readonly UiSurfaceRequirement[]
-}
-
-export interface ContributionHostRequirementSpecV2 extends ContributionHostRequirementSpec {
-  readonly optionalSurfaces?: readonly UiSurfaceRequirement[]
 }
 
 export interface UiSurfaceSupport extends ApiReference {
@@ -114,18 +116,6 @@ export const contributionHostProtocol: ProtocolDefinition<
   negotiate: negotiateContributionHost,
 })
 
-export const contributionHostProtocolV2: ProtocolDefinition<
-  ContributionHostRequirementSpecV2,
-  ContributionHostSupportSpec,
-  ContributionHostAgreement
-> = Object.freeze({
-  apiVersion: API_VERSION_V2,
-  kind: CONTRIBUTION_HOST_KIND,
-  validateRequirement: validateContributionHostRequirementV2,
-  validateSupport: validateContributionHostSupport,
-  negotiate: negotiateContributionHost,
-})
-
 export const contributionExtensionDefinition = Object.freeze({
   apiVersion: API_VERSION,
   kind: CONTRIBUTION_KIND,
@@ -160,37 +150,8 @@ export function contributionHostSupport(
   })
 }
 
-export function contributionHostRequirementV2(
-  spec: ContributionHostRequirementSpecV2,
-  optional = false,
-): ProtocolRequirement<ContributionHostRequirementSpecV2> {
-  return Object.freeze({
-    apiVersion: API_VERSION_V2,
-    kind: CONTRIBUTION_HOST_KIND,
-    spec: validateContributionHostRequirementV2(spec),
-    ...(optional ? { optional: true } : {}),
-  })
-}
-
-export function contributionHostSupportV2(
-  spec: ContributionHostSupportSpec,
-): ProtocolSupport<ContributionHostSupportSpec> {
-  return Object.freeze({
-    apiVersion: API_VERSION_V2,
-    kind: CONTRIBUTION_HOST_KIND,
-    spec: validateContributionHostSupport(spec),
-  })
-}
-
 export function register(catalog: ProtocolCatalog): () => void {
-  const disposeV1 = catalog.register(contributionHostProtocol)
-  try {
-    const disposeV2 = catalog.register(contributionHostProtocolV2)
-    return () => { disposeV2(); disposeV1() }
-  } catch (error) {
-    disposeV1()
-    throw error
-  }
+  return catalog.register(contributionHostProtocol)
 }
 
 export function registerManifest(catalog: ManifestDefinitionCatalog): () => void {
@@ -292,18 +253,6 @@ export function validateContributionHostRequirement(value: unknown): Contributio
   return deepFreeze({ surfaces })
 }
 
-export function validateContributionHostRequirementV2(value: unknown): ContributionHostRequirementSpecV2 {
-  const row = exactRecord(value, ['surfaces', 'optionalSurfaces'], ['surfaces'], 'ContributionHost v1alpha2 requirement spec')
-  const { surfaces } = validateContributionHostRequirement({ surfaces: row.surfaces })
-  if (row.optionalSurfaces !== undefined && !Array.isArray(row.optionalSurfaces)) {
-    throw new TypeError('ContributionHost v1alpha2 requirement spec.optionalSurfaces must be an array')
-  }
-  const optionalSurfaces = (row.optionalSurfaces as unknown[] | undefined)?.map((surface, index) =>
-    requirementSurface(surface, `ContributionHost v1alpha2 requirement spec.optionalSurfaces[${index}]`))
-  assertDistinctSurfaces([...surfaces, ...(optionalSurfaces ?? [])], 'ContributionHost v1alpha2 requirement spec')
-  return deepFreeze({ surfaces, ...(optionalSurfaces === undefined ? {} : { optionalSurfaces }) })
-}
-
 export function validateContributionHostSupport(value: unknown): ContributionHostSupportSpec {
   const row = exactRecord(value, ['surfaces'], ['surfaces'], 'ContributionHost support spec')
   if (!Array.isArray(row.surfaces) || row.surfaces.length === 0) {
@@ -341,18 +290,13 @@ export function validateContributionHostAgreement(value: unknown): ContributionH
 }
 
 function negotiateContributionHost(
-  input: ProtocolNegotiationInput<ContributionHostRequirementSpecV2, ContributionHostSupportSpec>,
+  input: ProtocolNegotiationInput<ContributionHostRequirementSpec, ContributionHostSupportSpec>,
 ): { readonly agreement: ContributionHostAgreement; readonly issues: readonly ProtocolIssue[] } {
   const surfaces: UiSurfaceAgreement[] = []
   const issues: ProtocolIssue[] = []
   for (const requirementEntry of input.requirements) {
-    const requestedSurfaces = [
-      ...(requirementEntry.requirement.spec?.surfaces ?? []).map(requested => ({
-        requested, optional: requirementEntry.requirement.optional === true,
-      })),
-      ...(requirementEntry.requirement.spec?.optionalSurfaces ?? []).map(requested => ({ requested, optional: true })),
-    ]
-    for (const { requested, optional } of requestedSurfaces) {
+    const optional = requirementEntry.requirement.optional === true
+    for (const requested of requirementEntry.requirement.spec?.surfaces ?? []) {
       const candidates = input.supports.flatMap(entry =>
         (entry.support.spec?.surfaces ?? [])
           .filter(supported => sameSurface(supported, requested) && supported.modes.includes(requested.mode))

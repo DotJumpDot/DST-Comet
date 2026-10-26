@@ -1,13 +1,18 @@
-import { ProtocolCatalog, type ApiReference, type ProtocolRequirement, type ProtocolSupport } from '@dsh-std/core'
-import { protocolKey, validateApiReference } from '@dsh-std/core/identity'
-import { validateProtocolJsonValue } from '@dsh-std/core/json'
-import { type VersionRange, assertVersionRange, parseSemanticVersion } from '@dsh-std/core/version'
+import {
+  ProtocolCatalog,
+  protocolKey,
+  validateApiReference,
+  type ApiReference,
+  type ProtocolRequirement,
+  type ProtocolSupport,
+  type VersionRange,
+  assertVersionRange,
+  parseSemanticVersion,
+} from '@dsh-std/core'
 export const COMMUNITY_V015_MANIFEST_VERSION = '0.15'
 export const COMPONENT_API_VERSION = 'manifest.dsh/internal/v1alpha1'
-export const PACKAGE_VERSION = '0.1.1-rc.3'
 export const COMMUNITY_PERMISSION_API_VERSION = 'community.dsh/v1alpha1'
 export const COMMUNITY_PERMISSION_KIND = 'Permission'
-export const COMMUNITY_CONTRIBUTION_ID_LABEL = 'dsh.std/contribution-id'
 
 const COMPONENT_ID = /^[a-z][a-z0-9]*(?:[.-][a-z0-9][a-z0-9-]*)+$/u
 const LOCAL_NAME = /^[a-z][a-z0-9]*(?:[.-][a-z0-9][a-z0-9-]*)*$/u
@@ -31,7 +36,7 @@ export interface CommunityCommandContribution {
 
 export type CommunitySubscription = string | (ApiReference & { readonly scope?: string })
 
-export interface CommunityPluginManifestV015Input {
+export interface CommunityPluginManifestV015 {
   /** Draft schema identifier. It is not fetched while loading the plugin. */
   readonly $schema: string
   readonly manifestVersion: typeof COMMUNITY_V015_MANIFEST_VERSION
@@ -41,16 +46,16 @@ export interface CommunityPluginManifestV015Input {
   readonly facets: {
     readonly host: { readonly entry: string; readonly apiVersion: string }
   }
-  readonly requires?: {
-    readonly contracts?: readonly CommunityContractReference[]
+  readonly requires: {
+    readonly contracts: readonly CommunityContractReference[]
     readonly services?: readonly never[]
   }
-  readonly permissions?: readonly CommunityPermissionRequest[]
-  readonly contributes?: {
-    readonly commands?: readonly CommunityCommandContribution[]
+  readonly permissions: readonly CommunityPermissionRequest[]
+  readonly contributes: {
+    readonly commands: readonly CommunityCommandContribution[]
     readonly panels?: readonly never[]
   } & Readonly<Record<string, readonly unknown[]>>
-  readonly subscriptions?: readonly CommunitySubscription[]
+  readonly subscriptions: readonly CommunitySubscription[]
   readonly license?: string
   readonly source?: { readonly repository: string; readonly revision?: string }
   readonly artifact?: { readonly digest: string; readonly algorithm: 'sha256'; readonly path: string }
@@ -62,27 +67,7 @@ export interface CommunityPluginManifestV015Input {
   }[]
 }
 
-/** Canonical v0.15 value, preserving the original required-container API. */
-export interface CommunityPluginManifestV015 extends Omit<
-  CommunityPluginManifestV015Input,
-  'requires' | 'permissions' | 'contributes' | 'subscriptions'
-> {
-  readonly requires: {
-    readonly contracts: readonly CommunityContractReference[]
-    readonly services?: readonly never[]
-  }
-  readonly permissions: readonly CommunityPermissionRequest[]
-  readonly contributes: {
-    readonly commands: readonly CommunityCommandContribution[]
-    readonly panels?: readonly never[]
-  } & Readonly<Record<string, readonly unknown[]>>
-  readonly subscriptions: readonly CommunitySubscription[]
-}
-
-export type PluginManifestInput = CommunityPluginManifestV015Input
 export type PluginManifest = CommunityPluginManifestV015
-export type ParsedCommunityPluginManifestV015 = CommunityPluginManifestV015
-export type ParsedPluginManifest = PluginManifest
 
 export interface ComponentRelationships {
   readonly depends?: Readonly<Record<string, VersionRange>>
@@ -171,7 +156,7 @@ export class ManifestDefinitionCatalog {
   private readonly activations = new Map<string, ManifestObjectDefinition>()
   private readonly extensions = new Map<string, ManifestObjectDefinition>()
 
-  constructor(readonly validator = Object.freeze({ name: '@dsh-std/manifest', version: PACKAGE_VERSION })) {
+  constructor(readonly validator = Object.freeze({ name: '@dsh-std/manifest', version: '0.1.0' })) {
     nonEmpty(validator.name, 'validator.name')
     nonEmpty(validator.version, 'validator.version')
   }
@@ -255,17 +240,17 @@ export function parseManifest(source: string, options: ParseManifestOptions = {}
   try { value = JSON.parse(source) } catch (error) {
     throw new SyntaxError(`${options.source ?? 'dsh-plugin.json'}: ${errorMessage(error)}`, { cause: error })
   }
-  try { return defineManifest(value as PluginManifestInput) } catch (error) {
+  try { return defineManifest(value as PluginManifest) } catch (error) {
     throw new TypeError(`${options.source ?? 'dsh-plugin.json'}: ${errorMessage(error)}`, { cause: error })
   }
 }
 
-export function defineManifest<const T extends PluginManifestInput>(manifest: T): T & PluginManifest {
+export function defineManifest<const T extends PluginManifest>(manifest: T): T {
   validateManifest(manifest)
-  return normalizeManifest(manifest) as T & PluginManifest
+  return deepFreeze(structuredClone(manifest))
 }
 
-export function validateManifest(value: unknown): asserts value is PluginManifestInput {
+export function validateManifest(value: unknown): asserts value is PluginManifest {
   if (!record(value)) throw new TypeError('plugin manifest must be an object')
   if (value.manifestVersion === COMMUNITY_V015_MANIFEST_VERSION) {
     validateCommunityManifest(value)
@@ -288,10 +273,10 @@ function validateCommunityManifest(value: Record<string, unknown>): void {
   nonEmpty(value.version, 'community v0.15 manifest.version')
   parseSemanticVersion(value.version as string)
   validateCommunityFacets(value.facets)
-  if (value.requires !== undefined) validateCommunityRequirements(value.requires)
-  if (value.permissions !== undefined) validateCommunityPermissions(value.permissions)
-  if (value.contributes !== undefined) validateCommunityContributions(value.contributes)
-  if (value.subscriptions !== undefined) validateCommunitySubscriptions(value.subscriptions)
+  validateCommunityRequirements(value.requires)
+  validateCommunityPermissions(value.permissions)
+  validateCommunityContributions(value.contributes)
+  validateCommunitySubscriptions(value.subscriptions)
   if (value.license !== undefined) nonEmpty(value.license, 'community v0.15 manifest.license')
   if (value.source !== undefined) validateCommunitySource(value.source)
   if (value.artifact !== undefined) validateCommunityArtifact(value.artifact)
@@ -330,25 +315,25 @@ export function validateComponentManifest(value: unknown): asserts value is Comp
 }
 
 /** Project a supported package manifest version into the common host composition model. */
-export function projectManifest(manifestValue: PluginManifestInput): ComponentManifest {
+export function projectManifest(manifestValue: PluginManifest): ComponentManifest {
   const manifest = defineManifest(manifestValue)
   return projectCommunityManifest(manifest)
 }
 
 function projectCommunityManifest(manifest: CommunityPluginManifestV015): ComponentManifest {
-  const extensions: ManifestExtension[] = (manifest.contributes?.commands ?? []).map(row => Object.freeze({
+  const extensions: ManifestExtension[] = manifest.contributes.commands.map(row => Object.freeze({
     apiVersion: 'commands.dsh/v1alpha1',
     kind: 'Command',
     metadata: Object.freeze({
       name: localContributionName(row.id),
-      labels: Object.freeze({ [COMMUNITY_CONTRIBUTION_ID_LABEL]: row.id }),
+      labels: Object.freeze({ 'dsh.std/contribution-id': row.id }),
     }),
     spec: Object.freeze({
       title: row.title,
       ...(row.description === undefined ? {} : { description: row.description }),
     }),
   }))
-  for (const [point, contributions] of Object.entries(manifest.contributes ?? {})) {
+  for (const [point, contributions] of Object.entries(manifest.contributes)) {
     if (!point.startsWith('x-')) continue
     for (const contribution of contributions) {
       if (!record(contribution)
@@ -362,14 +347,14 @@ function projectCommunityManifest(manifest: CommunityPluginManifestV015): Compon
         kind: contribution.kind,
         metadata: Object.freeze({
           name: contribution.name,
-          labels: Object.freeze({ [COMMUNITY_CONTRIBUTION_ID_LABEL]: contribution.id }),
+          labels: Object.freeze({ 'dsh.std/contribution-id': contribution.id }),
         }),
         spec: contribution.spec,
       }))
     }
   }
-  const requirements = (manifest.requires?.contracts ?? []).map(communityRequirement)
-  const permissions: PermissionRequest[] = (manifest.permissions ?? []).map(permission => Object.freeze({
+  const requirements = manifest.requires.contracts.map(communityRequirement)
+  const permissions: PermissionRequest[] = manifest.permissions.map(permission => Object.freeze({
     apiVersion: COMMUNITY_PERMISSION_API_VERSION,
     kind: COMMUNITY_PERMISSION_KIND,
     action: permission.name,
@@ -417,29 +402,6 @@ export function facetKey(identity: FacetIdentity): string {
   return `${identity.component}@${identity.version}#${identity.facet}`
 }
 
-function normalizeManifest(manifest: PluginManifestInput): PluginManifest {
-  const cloned = structuredClone(manifest)
-  return deepFreeze({
-    ...cloned,
-    requires: {
-      contracts: cloned.requires?.contracts ?? [],
-      ...(cloned.requires?.services === undefined ? {} : { services: cloned.requires.services }),
-    },
-    contributes: {
-      ...(cloned.contributes ?? {}),
-      commands: cloned.contributes?.commands ?? [],
-    },
-    permissions: cloned.permissions ?? [],
-    subscriptions: cloned.subscriptions ?? [],
-  })
-}
-
-/** Match either the normalized extension name or its preserved Community contribution id. */
-export function matchesExtensionPublicationName(extension: ManifestExtension, name: string): boolean {
-  return extension.metadata.name === name
-    || extension.metadata.labels?.[COMMUNITY_CONTRIBUTION_ID_LABEL] === name
-}
-
 export function findFacet(manifest: ComponentManifest, name: string): ComponentFacet | undefined {
   return manifest.spec.facets.find(facet => facet.name === name)
 }
@@ -461,9 +423,9 @@ function validateCommunityRequirements(value: unknown): void {
   const label = 'community v0.15 manifest.requires'
   if (!record(value)) throw new TypeError(`${label} must be an object`)
   exact(value, ['contracts', 'services'], label, false)
-  if (value.contracts !== undefined && !Array.isArray(value.contracts)) throw new TypeError(`${label}.contracts must be an array`)
+  if (!Array.isArray(value.contracts)) throw new TypeError(`${label}.contracts must be an array`)
   const seen = new Set<string>()
-  for (const [index, referenceValue] of (value.contracts ?? []).entries()) {
+  for (const [index, referenceValue] of value.contracts.entries()) {
     const rowLabel = `${label}.contracts[${index}]`
     validateApiReference(referenceValue, rowLabel)
     const reference = referenceValue as unknown as Record<string, unknown>
@@ -503,9 +465,9 @@ function validateCommunityContributions(value: unknown): void {
   if (!record(value)) throw new TypeError(`${label} must be an object`)
   const unknown = Object.keys(value).filter(point => point !== 'commands' && point !== 'panels' && !point.startsWith('x-'))
   if (unknown.length > 0) throw new TypeError(`${label} contains unknown contribution point ${JSON.stringify(unknown[0])}`)
-  if (value.commands !== undefined && !Array.isArray(value.commands)) throw new TypeError(`${label}.commands must be an array`)
+  if (!Array.isArray(value.commands)) throw new TypeError(`${label}.commands must be an array`)
   const ids = new Set<string>()
-  for (const [index, commandValue] of (value.commands ?? []).entries()) {
+  for (const [index, commandValue] of value.commands.entries()) {
     const rowLabel = `${label}.commands[${index}]`
     if (!record(commandValue)) throw new TypeError(`${rowLabel} must be an object`)
     exact(commandValue, ['id', 'title', 'description'], rowLabel, false)
@@ -635,7 +597,6 @@ function validateActivation(value: unknown, label: string): void {
   const row = value as unknown as Record<string, unknown>
   exact(row, ['apiVersion', 'kind', 'spec'], label)
   if (!Object.hasOwn(row, 'spec')) throw new TypeError(`${label}.spec is required`)
-  validateProtocolJsonValue(row.spec, `${label}.spec`)
 }
 
 function validateProtocols(value: unknown, label: string): void {
@@ -655,7 +616,6 @@ function validateProtocolRows(value: unknown, requirement: boolean, label: strin
     const row = rowValue as unknown as Record<string, unknown>
     exact(row, requirement ? ['apiVersion', 'kind', 'optional', 'spec'] : ['apiVersion', 'kind', 'spec'], rowLabel)
     if (requirement && row.optional !== undefined && typeof row.optional !== 'boolean') throw new TypeError(`${rowLabel}.optional must be boolean`)
-    if (Object.hasOwn(row, 'spec')) validateProtocolJsonValue(row.spec, `${rowLabel}.spec`)
     const key = protocolKey(row as unknown as ApiReference)
     if (seen.has(key)) throw new TypeError(`${label} contains duplicate protocol ${JSON.stringify(key)}`)
     seen.add(key)
@@ -675,7 +635,6 @@ function validateExtensions(value: unknown, label: string): void {
     nonEmpty(extension.metadata.name, `${rowLabel}.metadata.name`)
     if (extension.metadata.labels !== undefined) validateLabels(extension.metadata.labels, `${rowLabel}.metadata.labels`)
     if (!Object.hasOwn(extension, 'spec')) throw new TypeError(`${rowLabel}.spec is required`)
-    validateProtocolJsonValue(extension.spec, `${rowLabel}.spec`)
     if (Object.hasOwn(extension, 'status')) throw new TypeError(`${rowLabel}.status is runtime-owned`)
     const key = `${protocolKey(extension as unknown as ApiReference)}\0${String(extension.metadata.name)}`
     if (seen.has(key)) throw new TypeError(`${label} contains duplicate extension ${JSON.stringify(key)}`)
@@ -694,7 +653,6 @@ function validatePermissions(value: unknown, label: string): void {
     localName(permission.action, `${rowLabel}.action`)
     if (permission.optional !== undefined && typeof permission.optional !== 'boolean') throw new TypeError(`${rowLabel}.optional must be boolean`)
     if (permission.reason !== undefined) nonEmpty(permission.reason, `${rowLabel}.reason`)
-    if (Object.hasOwn(permission, 'spec')) validateProtocolJsonValue(permission.spec, `${rowLabel}.spec`)
     const key = `${protocolKey(permission as unknown as ApiReference)}\0${String(permission.action)}`
     if (seen.has(key)) throw new TypeError(`${label} contains duplicate permission ${JSON.stringify(key)}`)
     seen.add(key)

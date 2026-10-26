@@ -66,6 +66,13 @@ type Props = {
    */
   foldTerminalCommand?: boolean
   /**
+   * DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`; on by
+   * default): a collapsed terminal (Bash/Pwsh) or generic (MCP) card renders
+   * its header line only — no preview body, no fold hint; click / Ctrl+O
+   * expands. Error bodies and split diffs keep the normal collapsed shape.
+   */
+  oneLineToolCards?: boolean
+  /**
    * Smooth streaming reveal (settings `dsh-tui.smoothStreaming`): the card
    * BODY (diff hunks / write content — model-authored prose, not tool
    * output) paints through an even ~30fps line reveal when it first appears,
@@ -706,6 +713,7 @@ export function AssistantToolUseMessage({
   toolBackground = 'none',
   onOpenFile,
   foldTerminalCommand = false,
+  oneLineToolCards = true,
   smoothReveal = false,
   fresh = false,
   revealVersion,
@@ -844,6 +852,18 @@ export function AssistantToolUseMessage({
     if (isRunning && body.length === 0) {
       body = [dim(t('tool-running-elapsed', { duration: formatDuration(Math.max(0, Date.now() - (tool.startedAt ?? Date.now()))) }))]
     }
+  }
+  // DST Comet one-line cards (settings `dsh-tui.oneLineToolCards`): collapsed
+  // terminal and generic cards render their header line only — the preview
+  // body and its fold hint disappear; click / Ctrl+O reveals everything.
+  // Error verdicts keep the normal body (a stack trace must stay readable),
+  // split diffs are untouched, and the terminal exit-code footnote below
+  // still rides outside every cap.
+  if (
+    oneLineToolCards && !verbose && !sendMessageRawOpen && !isError && !useSplitDiff
+    && (view === undefined || view.card === 'terminal' || view.card === 'generic')
+  ) {
+    body = []
   }
   const cap = view?.card === 'diff' ? DIFF_BODY_MAX_LINES : TEXT_BODY_MAX_LINES
   // 展开态（点击/verbose）的 SendMessage 卡不截断——raw 层就是「全量」。

@@ -108,11 +108,18 @@ export function AssistantThinkingMessage({
       ? ` · ${formatDuration(durationMs)}`
       : ''
 
+  // DST Comet: the header also carries the reasoning volume — the line
+  // count of the full thinking text (the revealed slice under smooth
+  // streaming tracks it, the folded settled block reports everything the
+  // expansion would show).
+  const lineCount = (textFull ?? thinking).split('\n').length
+  const linesStat = lineCount > 1 ? ` · ${t('thinking-lines', { n: lineCount })}` : ''
+
   // Kimi Code style blue pulse: the streaming glyph breathes along the
   // header's brand→ice ladder, one sine period per ~7 frames (≈0.56s) —
   // lively without strobing. The minimal UI drops the color (plain glyph);
   // settled always keeps the plain dim anchor.
-  const label = `${t('thinking-label')}${duration}${streaming ? '…' : ` ${t('hint-expand-ctrl-o', { key: primaryComboString('transcript') })}`}`
+  const label = `${t('thinking-label')}${duration}${linesStat}${streaming ? '…' : ` ${t('hint-expand-ctrl-o', { key: primaryComboString('transcript') })}`}`
   const minimalUi = isMinimalUiMode()
   const pulse = (Math.sin(frame * 0.9) + 1) / 2
   const pulseColor = interpolateColor(BRAND, ICE, pulse)

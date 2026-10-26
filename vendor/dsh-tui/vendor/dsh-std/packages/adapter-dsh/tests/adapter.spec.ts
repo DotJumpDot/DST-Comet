@@ -1,4 +1,4 @@
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it } from 'vitest'
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { isAbsolute, join, relative } from 'node:path'
@@ -6,11 +6,9 @@ import { pathToFileURL } from 'node:url'
 import { Context } from '@deepseek-ai/cordis'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
-import SkillRegistry from '@deepseek-ai/dsh-skill'
 import { KNOWN_SESSION_EVENT_TYPES } from '@deepseek-ai/dsh-session'
 import { defineProtocolDeclaration } from '@dsh-std/core'
-import { defineComponentManifest, type CommunityContractReference } from '@dsh-std/manifest'
-import { DshBrowserUiRuntime } from '../src/client.js'
+import { defineComponentManifest } from '@dsh-std/manifest'
 import { StandardEndpointRuntime, resolveConnection, type CapabilityClient } from '@dsh-std/connection'
 import {
   notificationClient,
@@ -19,9 +17,6 @@ import {
 } from '@dsh-std/presentation'
 import {
   contributionHostRequirement,
-  contributionHostRequirementV2,
-  type UiContributionProvider,
-  type ContributionHostApiVersion,
   type ContributionHostClient,
 } from '@dsh-std/ui'
 import {
@@ -71,11 +66,7 @@ function presentation(kinds: readonly string[]) {
   }
 }
 
-async function fixture(
-  declarePresentation = true,
-  profile = 'host',
-  commandPlacements?: readonly { readonly apiVersion: string; readonly kind: string }[],
-): Promise<{
+async function fixture(declarePresentation = true): Promise<{
   ctx: Context
   adapter: DshStandardAdapter
   events: Array<{ type: string; data: unknown }>
@@ -164,27 +155,9 @@ async function fixture(
   }
   ctx.provide('agents', { get: (id: string) => id === 'session-1' ? agent : undefined } as never)
   ;(ctx.get('agents') as unknown as { list?: () => unknown[] }).list = () => [agent]
-  ctx.provide('sessionController', {
-    list: async () => ({ items: [{ sessionId: 'session-1' }] }),
-    inspect: async (id: string) => {
-      if (id !== 'session-1') {
-        throw Object.assign(new Error('not found'), { failure: { code: 'session/not-found' } })
-      }
-      return {
-        meta: { id: 'session-1', createdAt: 1 },
-        events: events.map((event, seq) => ({ ...event, seq, time: seq + 2 })),
-      }
-    },
-    create: async ({ sessionId }: { sessionId?: string }) => ({ sessionId: sessionId ?? 'session-created' }),
-    rename: async ({ title }: { title: string }) => ({ title, seq: events.length }),
-    follow: async function *() {
-      yield { type: 'snapshot' as const, cursor: events.length - 1 }
-    },
-  } as never)
   ctx.provide('tools', tools as never)
   await ctx.plugin(CommandRuntime)
-  await ctx.plugin(SkillRegistry)
-  const adapter = new DshStandardAdapter(ctx, { profile })
+  const adapter = new DshStandardAdapter(ctx, { profile: 'host' })
   const manifest = defineComponentManifest({
     apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
     metadata: { name: 'example.acme.account', displayName: 'Account', version: '1.0.0' },
@@ -207,7 +180,6 @@ async function fixture(
             metadata: { name: 'account' },
             spec: {
               title: 'Manage account',
-              ...(commandPlacements === undefined ? {} : { placements: commandPlacements }),
               children: [{ name: 'login', spec: { title: 'Sign in' } }],
             },
           },
@@ -224,11 +196,7 @@ async function fixture(
     manifest,
     facet: 'runtime',
     activate(activation) {
-      activation.extensions.publish(
-        { apiVersion: DSH_COMMAND_API_VERSION, kind: 'Command' },
-        'account',
-        { execute: () => ({ kind: 'success', text: 'copy the URL' }) },
-      )
+      activation.extensions.publish({ apiVersion: DSH_COMMAND_API_VERSION, kind: 'Command' }, 'account', {})
       activation.extensions.publish({ apiVersion: DSH_MODEL_API_VERSION, kind: DSH_MODEL_PROVIDER_KIND }, 'example-provider', {})
     },
     snapshot: () => ({
@@ -243,70 +211,14 @@ async function fixture(
       }],
     }),
   })
+  ctx.commands.register({
+    name: 'account', description: 'Manage account', input: { hint: 'subcommand' },
+    handler: () => ({ kind: 'success', text: 'copy the URL' }),
+  })
   return { ctx, adapter, events, agent, tools }
 }
 
 describe('@dsh-std/adapter-dsh', () => {
-  it('projects package-local standard Skills lazily and retracts them on unload', async () => {
-    const { ctx, adapter } = await fixture()
-    const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-skill-profile-'))
-    temporaryRoots.push(profileDir)
-    const componentDir = join(profileDir, 'node_modules', 'skill-component')
-    const skillDir = join(componentDir, 'skills', 'portable-skill')
-    mkdirSync(skillDir, { recursive: true })
-    writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
-      name: 'fixture-profile', private: true, dependencies: { 'skill-component': '1.0.0' },
-    }))
-    writeFileSync(join(componentDir, 'package.json'), JSON.stringify({
-      name: 'skill-component', version: '1.0.0', type: 'module',
-    }))
-    writeFileSync(join(componentDir, 'dsh-plugin.json'), JSON.stringify({
-      $schema: 'urn:example:dsh-plugin:0.15', manifestVersion: '0.15',
-      id: 'example.skill.component', name: 'Skill Component', version: '1.0.0',
-      facets: { host: { entry: 'standard.js', apiVersion: 'v1alpha1' } },
-      contributes: {
-        'x-dsh-std.skills': [{
-          id: 'example.skill.component.portable-skill',
-          apiVersion: 'skills.dsh/v1alpha1', kind: 'Skill', name: 'portable-skill',
-          spec: {
-            description: 'Load portable guidance only when requested.',
-            entry: 'skills/portable-skill/SKILL.md',
-            invocation: { model: true, user: false },
-          },
-        }],
-      },
-    }))
-    writeFileSync(join(componentDir, 'standard.js'), [
-      'export default {',
-      '  activate(context) {',
-      '    context.extensions.publish({ apiVersion: "skills.dsh/v1alpha1", kind: "Skill" }, "portable-skill", null)',
-      '  },',
-      '}',
-      '',
-    ].join('\n'))
-    const skillPath = join(skillDir, 'SKILL.md')
-    writeFileSync(skillPath, 'initial body')
-
-    const disposers = await adapter.mountProfileComponents(profileDir)
-    expect(await ctx.skills.list()).toEqual(expect.arrayContaining([expect.objectContaining({
-      name: 'portable-skill',
-      description: 'Load portable guidance only when requested.',
-      invocation: { modelInvocable: true, userInvocable: false },
-      provider: 'dsh-std',
-    })]))
-
-    writeFileSync(skillPath, 'body loaded after catalog discovery')
-    await expect(ctx.skills.get('portable-skill')).resolves.toEqual(expect.objectContaining({
-      name: 'portable-skill', content: 'body loaded after catalog discovery',
-    }))
-
-    writeFileSync(skillPath, Uint8Array.of(0xff))
-    await expect(ctx.skills.get('portable-skill')).rejects.toThrow()
-
-    for (const dispose of [...disposers].reverse()) await dispose()
-    await expect(ctx.skills.get('portable-skill')).resolves.toBeUndefined()
-  })
-
   it('discovers portable facet modules from installed profile dependencies', async () => {
     const { adapter } = await fixture()
     const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-profile-'))
@@ -354,18 +266,24 @@ describe('@dsh-std/adapter-dsh', () => {
     expect((await adapter.snapshot()).facets.some(row => row.identity.component === 'example.fixture.component')).toBe(false)
   })
 
-  it.each(['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2'] as const)('installs a Community LocalModule with exact %s requirements without a product Loader entry', async apiVersion => {
+  it('loads a component browser half only when the Web client-module host is active', async () => {
     const { ctx, adapter } = await fixture()
-    const routes: Array<{
-      path: string
-      handler(request: { method?: string; url?: string }, response: {
-        writeHead(status: number, headers?: Record<string, string>): void
-        end(body?: Uint8Array | string): void
-      }): void
-    }> = []
+    const loaderEntries: Array<{ options: { name: string } }> = []
+    const created: string[] = []
+    const removed: string[] = []
     const provide = ctx.provide.bind(ctx) as (name: string, value: unknown) => void
-    provide('webServer', {
-      register(route: typeof routes[number]) { routes.push(route); return () => { routes.splice(routes.indexOf(route), 1) } },
+    provide('clientModules', {})
+    provide('loader', {
+      entries: () => loaderEntries,
+      async create(options: { name: string }) {
+        created.push(options.name)
+        loaderEntries.push({ options })
+        return `entry:${options.name}`
+      },
+      async remove(id: string) {
+        removed.push(id)
+        loaderEntries.splice(0)
+      },
     })
     const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-web-profile-'))
     temporaryRoots.push(profileDir)
@@ -376,95 +294,21 @@ describe('@dsh-std/adapter-dsh', () => {
     }))
     writeFileSync(join(componentDir, 'package.json'), JSON.stringify({
       name: 'web-component', version: '1.0.0', type: 'module',
+      exports: { '.': './index.js', './client': './client.js' },
+      dsh: { client: { platform: 'web', inject: ['@dsh-std/adapter-dsh'] } },
     }))
     writeFileSync(join(componentDir, 'dsh-plugin.json'), JSON.stringify({
       $schema: 'urn:example:dsh-plugin:0.15', manifestVersion: '0.15',
       id: 'example.web.component', name: 'Web Component', version: '1.0.0',
       facets: { host: { entry: 'standard.js', apiVersion: 'v1alpha1' } },
-      requires: { contracts: [] }, permissions: [], contributes: {
-        commands: [],
-        'x-dev.dsh-std.extensions': [{
-          id: 'example.web.component.browser',
-          apiVersion: 'browser.ui.dsh/v1alpha1', kind: 'LocalModule', name: 'browser',
-          spec: {
-            module: 'client.js',
-            requirements: [{
-              apiVersion, kind: 'ContributionHost',
-              spec: { surfaces: [{
-                apiVersion: 'browser.ui.dsh/v1alpha1', kind: 'SettingsSection', mode: 'local-module',
-              }], ...(apiVersion === 'ui.dsh/v1alpha2' ? { optionalSurfaces: [{
-                apiVersion: 'example.ui/v1', kind: 'Missing', mode: 'local-module',
-              }] } : {}) },
-            }],
-          },
-        }],
-      }, subscriptions: [],
+      requires: { contracts: [] }, permissions: [], contributes: { commands: [] }, subscriptions: [],
     }))
     writeFileSync(join(componentDir, 'standard.js'), 'export default { activate() {} }\n')
-    writeFileSync(join(componentDir, 'client.js'), 'window.__ModuleLoader__.load({ id: "web-component", factory: () => ({ default: { activate() {} } }) });\n')
 
     const disposers = await adapter.mountProfileComponents(profileDir)
-    const facets = adapter.browserFacets()
-    expect(facets).toEqual([expect.objectContaining({
-      moduleId: 'web-component', facet: 'browser',
-      manifest: expect.objectContaining({ metadata: expect.objectContaining({ name: 'example.web.component' }) }),
-    })])
-    await expect(adapter.components()).resolves.toEqual(expect.arrayContaining([expect.objectContaining({
-      id: 'example.web.component', displayName: 'Web Component', version: '1.0.0',
-      facets: [expect.objectContaining({ name: 'host', state: 'active' })],
-    })]))
-    await vi.waitFor(() => { expect(routes).toHaveLength(1) })
-    expect(facets[0]!.url).toMatch(/^dsh-std\/browser-modules\/[a-f0-9]{24}\.js\?rev=[a-f0-9]{16}$/u)
-    let status = 0
-    let body: Uint8Array | string | undefined
-    routes[0]!.handler({ method: 'GET', url: new URL(facets[0]!.url, 'http://dsh.invalid/').pathname }, {
-      writeHead(value) { status = value },
-      end(value) { body = value },
-    })
-    expect(status).toBe(200)
-    expect(Buffer.from(body as Uint8Array).toString('utf8')).toContain('__ModuleLoader__.load')
-    const requirement = facets[0]!.manifest.spec.facets[0]!.protocols!.requires![0]!
-    expect(requirement.apiVersion).toBe(apiVersion)
-    expect(requirement.spec).toEqual({
-      surfaces: [{ apiVersion: 'browser.ui.dsh/v1alpha1', kind: 'SettingsSection', mode: 'local-module' }],
-      ...(apiVersion === 'ui.dsh/v1alpha2' ? { optionalSurfaces: [{ apiVersion: 'example.ui/v1', kind: 'Missing', mode: 'local-module' }] } : {}),
-    })
-    const browser = new Context()
-    const entries: Record<string, unknown>[] = []
-    browser.provide('slots', {
-      inject(_name: string, setup: () => () => void) { return setup() },
-      register(options: Record<string, unknown>) {
-        entries.push(options)
-        return () => { entries.splice(entries.indexOf(options), 1) }
-      },
-    } as never)
-    const runtime = new DshBrowserUiRuntime(browser)
-    let ui: ContributionHostClient | undefined
-    const disposeBrowser = await runtime.mountFacet({
-      manifest: facets[0]!.manifest, facet: facets[0]!.facet,
-      module: { activate(activation) {
-        ui = activation.protocols.client({ apiVersion, kind: 'ContributionHost' })
-        expect(ui!.surfaces.map(row => row.kind)).toEqual(['SettingsSection'])
-        expect(activation.protocols.client({
-          apiVersion: apiVersion === 'ui.dsh/v1alpha1' ? 'ui.dsh/v1alpha2' : 'ui.dsh/v1alpha1', kind: 'ContributionHost',
-        })).toBeUndefined()
-        expect(() => ui!.register({ descriptor: {
-          id: 'missing', surface: { apiVersion: 'example.ui/v1', kind: 'Missing' }, content: {},
-        }, localModule: { component: () => null } })).toThrow(/not negotiated/)
-        ui!.register({ descriptor: {
-          id: 'installed-settings', surface: { apiVersion: 'browser.ui.dsh/v1alpha1', kind: 'SettingsSection' }, content: { label: 'Installed' },
-        }, localModule: { component: () => null } })
-      } },
-    })
-    expect(entries).toHaveLength(1)
-    await disposeBrowser()
-    expect(entries).toEqual([])
-    expect(() => ui!.register({ descriptor: {
-      id: 'late', surface: { apiVersion: 'browser.ui.dsh/v1alpha1', kind: 'SettingsSection' }, content: { label: 'Late' },
-    }, localModule: { component: () => null } })).toThrow(/closed/)
-    await browser.fiber.dispose()
+    expect(created).toEqual(['web-component'])
     for (const dispose of [...disposers].reverse()) await dispose()
-    expect(adapter.browserFacets()).toEqual([])
+    expect(removed).toEqual(['entry:web-component'])
   })
 
   it('loads a Community v0.15 host facet from a package-relative entry', async () => {
@@ -488,21 +332,10 @@ describe('@dsh-std/adapter-dsh', () => {
       facets: { host: { entry: 'dist/host.js', apiVersion: 'v1alpha1' } },
       requires: { contracts: [{ apiVersion: 'commands.dsh/v1alpha1', kind: 'Command' }] },
       permissions: [],
-      contributes: { commands: [{
-        id: 'example.community.component.status',
-        title: 'Community status',
-      }] },
+      contributes: { commands: [] },
       subscriptions: [],
     }))
-    writeFileSync(join(componentDir, 'dist', 'host.js'), `export default {
-      activate(context) {
-        context.extensions.publish(
-          { apiVersion: 'commands.dsh/v1alpha1', kind: 'Command' },
-          'example.community.component.status',
-          { execute() { return { kind: 'success', text: 'community status' } } },
-        )
-      },
-    }\n`)
+    writeFileSync(join(componentDir, 'dist', 'host.js'), 'export default { activate() {} }\n')
 
     const disposers = await adapter.mountProfileComponents(profileDir)
     expect((await adapter.snapshot()).facets).toEqual(expect.arrayContaining([
@@ -510,208 +343,7 @@ describe('@dsh-std/adapter-dsh', () => {
         component: 'example.community.component', facet: 'host',
       }) }),
     ]))
-    expect(adapter.catalog('session-1', undefined).commands).toEqual(expect.arrayContaining([
-      expect.objectContaining({
-        name: 'status',
-        resource: expect.objectContaining({ metadata: expect.objectContaining({ name: 'status' }) }),
-      }),
-    ]))
     for (const dispose of disposers) await dispose()
-  })
-
-  describe('profile preflight before import', () => {
-    function writePreflightComponent(
-      contracts: readonly CommunityContractReference[] = [],
-      options: {
-        profileDir?: string
-        packageName?: string
-        hostApiVersion?: string
-        importBody?: string
-        activateBody?: string
-      } = {},
-    ) {
-      const profileDir = options.profileDir ?? mkdtempSync(join(tmpdir(), 'dsh-std-preflight-profile-'))
-      if (options.profileDir === undefined) temporaryRoots.push(profileDir)
-      const packageName = options.packageName ?? 'preflight-component'
-      const profilePath = join(profileDir, 'package.json')
-      const dependencies = existsSync(profilePath)
-        ? (JSON.parse(readFileSync(profilePath, 'utf8')) as { dependencies: Record<string, string> }).dependencies
-        : {}
-      writeFileSync(profilePath, JSON.stringify({
-        name: 'fixture-profile', private: true, dependencies: { ...dependencies, [packageName]: '1.0.0' },
-      }))
-      const componentDir = join(profileDir, 'node_modules', packageName)
-      mkdirSync(componentDir, { recursive: true })
-      writeFileSync(join(componentDir, 'package.json'), JSON.stringify({
-        name: packageName, version: '1.0.0', type: 'module',
-      }))
-      writeFileSync(join(componentDir, 'dsh-plugin.json'), JSON.stringify({
-        $schema: 'urn:example:dsh-plugin:0.15', manifestVersion: '0.15',
-        id: 'example.preflight.' + packageName, name: 'Preflight Component', version: '1.0.0',
-        facets: { host: { entry: 'host.js', apiVersion: options.hostApiVersion ?? 'v1alpha1' } },
-        requires: { contracts },
-      }))
-      const imported = join(profileDir, packageName + '.imported')
-      const activated = join(profileDir, packageName + '.activated')
-      const deactivated = join(profileDir, packageName + '.deactivated')
-      writeFileSync(join(componentDir, 'host.js'), [
-        'import { writeFileSync } from "node:fs"',
-        'writeFileSync(' + JSON.stringify(imported) + ', "imported")',
-        options.importBody ?? '',
-        'export default {',
-        '  async activate(context) {',
-        '    writeFileSync(' + JSON.stringify(activated) + ', "activated")',
-        options.activateBody ?? '',
-        '  },',
-        '  deactivate() { writeFileSync(' + JSON.stringify(deactivated) + ', "deactivated") },',
-        '}',
-        '',
-      ].join('\n'))
-      return { profileDir, imported, activated, deactivated }
-    }
-
-    const unavailableContracts = [
-      { label: 'known', reference: { apiVersion: DSH_PRESENTATION_API_VERSION, kind: 'Notification' },
-        error: /no selected or live participant may support presentation\.dsh\/v1alpha1 Notification/ },
-      { label: 'unknown', reference: { apiVersion: 'private.example/v1alpha1', kind: 'Missing' },
-        error: /no protocol definition recognizes private\.example\/v1alpha1 Missing/ },
-    ]
-
-    it.each(unavailableContracts)('rejects a $label required contract before importing its host facet', async ({ reference, error }) => {
-      const { adapter } = await fixture(false)
-      const before = adapter.publications.list()
-      const component = writePreflightComponent([reference])
-
-      await expect(adapter.mountProfileComponents(component.profileDir)).rejects.toThrow(error)
-      expect(existsSync(component.imported)).toBe(false)
-      expect(existsSync(component.activated)).toBe(false)
-      expect(adapter.publications.list()).toEqual(before)
-      expect((await adapter.snapshot()).facets).toHaveLength(1)
-    })
-
-    it.each(unavailableContracts)('loads its host facet when a missing $label contract is optional', async ({ reference }) => {
-      const { adapter } = await fixture(false)
-      const before = adapter.publications.list()
-      const component = writePreflightComponent([{ ...reference, optional: true }])
-
-      const disposers = await adapter.mountProfileComponents(component.profileDir)
-      expect(existsSync(component.imported)).toBe(true)
-      expect(existsSync(component.activated)).toBe(true)
-      expect((await adapter.snapshot()).facets).toHaveLength(2)
-      for (const dispose of disposers) await dispose()
-      expect(existsSync(component.deactivated)).toBe(true)
-      expect(adapter.publications.list()).toEqual(before)
-    })
-
-    it('keeps the Host API mismatch check before import', async () => {
-      const { adapter } = await fixture(false)
-      const component = writePreflightComponent([], { hostApiVersion: 'v2alpha1' })
-
-      await expect(adapter.mountProfileComponents(component.profileDir)).rejects.toThrow(
-        'requires Host facet API v2alpha1; adapter provides v1alpha1',
-      )
-      expect(existsSync(component.imported)).toBe(false)
-      expect(existsSync(component.activated)).toBe(false)
-    })
-
-    it('does not treat an unactivated provider facet as live support', async () => {
-      const { adapter } = await fixture(false)
-      await adapter.mount({
-        manifest: defineComponentManifest({
-          apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-          metadata: { name: 'example.preflight.provider', version: '1.0.0' },
-          spec: { facets: [
-            { name: 'idle', activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'idle' } } },
-            { name: 'notifications', activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'notifications' } },
-              protocols: { supports: [notificationSupport] } },
-          ] },
-        }),
-        facet: 'idle', activate() {},
-      })
-      const before = adapter.publications.list()
-      const component = writePreflightComponent([notificationSupport])
-
-      await expect(adapter.mountProfileComponents(component.profileDir)).rejects.toThrow(/cannot be composed/)
-      expect(existsSync(component.imported)).toBe(false)
-      expect(existsSync(component.activated)).toBe(false)
-      expect(adapter.publications.list()).toEqual(before)
-    })
-
-    async function publishNotifications(adapter: DshStandardAdapter): Promise<() => Promise<void>> {
-      return await adapter.mount({
-        manifest: defineComponentManifest({
-          apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-          metadata: { name: 'example.preflight.notifications', version: '1.0.0' },
-          spec: { facets: [{
-            name: 'runtime',
-            activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'notifications' } },
-            protocols: { supports: [notificationSupport] },
-          }] },
-        }),
-        facet: 'runtime',
-        activate(activation) {
-          activation.protocols.implement(notificationSupport, notificationImplementation(
-            activation.identity.participantId,
-            { notify: () => ({ status: 'submitted', value: { accepted: true } }) },
-          ))
-        },
-      })
-    }
-
-    it('loads a required contract when its provider is already published', async () => {
-      const { adapter } = await fixture(false)
-      const disposeProvider = await publishNotifications(adapter)
-      const before = adapter.publications.list()
-      const component = writePreflightComponent([notificationSupport], {
-        activateBody: 'if (context.protocols.client(' + JSON.stringify(notificationSupport) + ') === undefined) throw new Error("Notification client is unavailable")',
-      })
-
-      const disposers = await adapter.mountProfileComponents(component.profileDir)
-      expect(existsSync(component.imported)).toBe(true)
-      expect(existsSync(component.activated)).toBe(true)
-      expect((await adapter.snapshot()).facets).toHaveLength(3)
-      for (const dispose of disposers) await dispose()
-      expect(adapter.publications.list()).toEqual(before)
-      await disposeProvider()
-    })
-
-    it('rechecks live support lost during import before activating', async () => {
-      const { adapter } = await fixture(false)
-      const before = adapter.publications.list()
-      const disposeProvider = await publishNotifications(adapter)
-      const hooks = globalThis as { __dshStdPreflightImport?: () => Promise<void> }
-      hooks.__dshStdPreflightImport = disposeProvider
-      try {
-        const component = writePreflightComponent([notificationSupport], {
-          importBody: 'await globalThis.__dshStdPreflightImport()',
-        })
-        await expect(adapter.mountProfileComponents(component.profileDir)).rejects.toThrow(/cannot be composed/)
-        expect(existsSync(component.imported)).toBe(true)
-        expect(existsSync(component.activated)).toBe(false)
-        expect(adapter.publications.list()).toEqual(before)
-        expect((await adapter.snapshot()).facets).toHaveLength(1)
-      } finally {
-        delete hooks.__dshStdPreflightImport
-      }
-    })
-
-    it('unmounts earlier profile facets when a later preflight fails', async () => {
-      const { adapter } = await fixture(false)
-      const before = adapter.publications.list()
-      const first = writePreflightComponent([], { packageName: 'a-first' })
-      const rejected = writePreflightComponent([notificationSupport], {
-        profileDir: first.profileDir, packageName: 'z-rejected',
-      })
-
-      await expect(adapter.mountProfileComponents(first.profileDir)).rejects.toThrow(/cannot be composed/)
-      expect(existsSync(first.imported)).toBe(true)
-      expect(existsSync(first.activated)).toBe(true)
-      expect(existsSync(first.deactivated)).toBe(true)
-      expect(existsSync(rejected.imported)).toBe(false)
-      expect(existsSync(rejected.activated)).toBe(false)
-      expect(adapter.publications.list()).toEqual(before)
-      expect((await adapter.snapshot()).facets).toHaveLength(1)
-    })
   })
 
   it('gives a standard facet a callable client for its negotiated protocol', async () => {
@@ -775,8 +407,9 @@ describe('@dsh-std/adapter-dsh', () => {
     expect(issuedCapability?.binding(notificationSupport)).toBeUndefined()
   })
 
-  /** Write one profile dependency whose host facet publishes a fixture ModelProvider. */
-  function writeProfileModelComponent(profileDir: string): void {
+  it('discovers from the profile directory URL supplied by the DSH bundle', async () => {
+    const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-profile-url-'))
+    temporaryRoots.push(profileDir)
     const componentDir = join(profileDir, 'node_modules', 'fixture-component')
     mkdirSync(componentDir, { recursive: true })
     writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
@@ -815,37 +448,18 @@ export default {
       'fixture-models',
       {
         async listModels() { return [{ id: 'fixture-model', name: 'Fixture Model' }] },
-        async *stream(request) {
-          globalThis.__dshStdFixtureModelRequest = request
-          if (globalThis.__dshStdFixtureEchoToolResult === true) {
-            globalThis.__dshStdFixtureEchoToolResult = false
-            yield { type: 'block-end', index: 0, block: { type: 'tool-result', toolCallId: 'call-1', content: [] } }
-          }
-        },
+        async *stream() {},
       },
     )
   },
 }
 `)
-  }
-
-  it('discovers from the profile directory URL supplied by the DSH bundle', async () => {
-    const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-profile-url-'))
-    temporaryRoots.push(profileDir)
-    writeProfileModelComponent(profileDir)
 
     const ctx = new Context()
     // Cordis scopes the plugin context to its package. The bundle evaluates
     // profileBaseUrl in the root profile context before that scope is created.
     ctx.baseUrl = pathToFileURL(`${join(profileDir, 'node_modules', '@dsh-std', 'adapter-dsh')}/`).href
     ctx.provide('agents', { get: () => undefined, list: () => [] } as never)
-    ctx.provide('sessionController', {
-      list: async () => ({ items: [] }),
-      inspect: async () => { throw Object.assign(new Error('not found'), { failure: { code: 'session/not-found' } }) },
-      create: async ({ sessionId }: { sessionId?: string }) => ({ sessionId: sessionId ?? 'created' }),
-      rename: async ({ title }: { title: string }) => ({ title, seq: 0 }),
-      follow: async function *() { yield { type: 'snapshot' as const, cursor: -1 } },
-    } as never)
     await ctx.plugin(CommandRuntime)
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(dshStandardAdapterPlugin, { profileBaseUrl: pathToFileURL(`${profileDir}/`).href })
@@ -861,85 +475,6 @@ export default {
     expect(ctx.llm.listProviders()).toEqual(expect.arrayContaining([
       expect.objectContaining({ id: 'fixture-models' }),
     ]))
-    await ctx.fiber.dispose()
-  })
-
-  it('projects tool and developer messages into the standard model request', async () => {
-    const profileDir = mkdtempSync(join(tmpdir(), 'dsh-std-model-projection-'))
-    temporaryRoots.push(profileDir)
-    writeProfileModelComponent(profileDir)
-
-    const ctx = new Context()
-    ctx.baseUrl = pathToFileURL(`${join(profileDir, 'node_modules', '@dsh-std', 'adapter-dsh')}/`).href
-    ctx.provide('agents', { get: () => undefined, list: () => [] } as never)
-    ctx.provide('sessionController', {
-      list: async () => ({ items: [] }),
-      inspect: async () => { throw Object.assign(new Error('not found'), { failure: { code: 'session/not-found' } }) },
-      create: async ({ sessionId }: { sessionId?: string }) => ({ sessionId: sessionId ?? 'created' }),
-      rename: async ({ title }: { title: string }) => ({ title, seq: 0 }),
-      follow: async function *() { yield { type: 'snapshot' as const, cursor: -1 } },
-    } as never)
-    await ctx.plugin(CommandRuntime)
-    await ctx.plugin(LlmRuntime)
-    await ctx.plugin(dshStandardAdapterPlugin, { profileBaseUrl: pathToFileURL(`${profileDir}/`).href })
-    const adapter = ctx.dshStd
-    for (let attempt = 0; attempt < 20 && (await adapter.snapshot()).facets.length === 0; attempt += 1) {
-      await new Promise(resolve => setTimeout(resolve, 5))
-    }
-    const request = {
-      provider: 'fixture-models',
-      model: 'fixture-model',
-      messages: [
-        {
-          role: 'assistant', id: 'message-1', source: { kind: 'model', provider: 'fixture', model: 'fixture-model' },
-          content: [{ type: 'tool-call', id: 'call-1', name: 'read', arguments: '{}' }],
-        },
-        {
-          role: 'tool', id: 'message-2', source: { kind: 'tool', callId: 'call-1' },
-          toolCallId: 'call-1', isError: true, content: [{ type: 'text', text: 'file body' }],
-        },
-        {
-          role: 'developer', id: 'message-3', source: { kind: 'tool-registry' },
-          content: [{ type: 'tool-addition', toolName: 'read' }],
-        },
-      ],
-    } as never
-    for await (const _chunk of ctx.llm.stream(request)) { /* drain */ }
-
-    // DSH carries a tool result as its own tool-role message while the standard
-    // request has no tool role, and session-local tool changes stay out.
-    expect((globalThis as { __dshStdFixtureModelRequest?: { messages: unknown[] } })
-      .__dshStdFixtureModelRequest?.messages).toEqual([
-      {
-        role: 'assistant',
-        source: { kind: 'model', provider: 'fixture', model: 'fixture-model' },
-        content: [{ type: 'tool-call', id: 'call-1', name: 'read', arguments: '{}' }],
-      },
-      {
-        role: 'user',
-        source: { kind: 'tool', callId: 'call-1' },
-        content: [{ type: 'tool-result', toolCallId: 'call-1', content: [{ type: 'text', text: 'file body' }], isError: true }],
-      },
-    ])
-
-    // A handler cannot answer a tool call with a stream block: DSH carries the
-    // result in a tool-role message, so the request fails as a model error.
-    ;(globalThis as { __dshStdFixtureEchoToolResult?: boolean }).__dshStdFixtureEchoToolResult = true
-    const chunks: Array<{ readonly type: string; readonly reason?: unknown }> = []
-    for await (const chunk of ctx.llm.stream({
-      provider: 'fixture-models', model: 'fixture-model', messages: [],
-    } as never)) chunks.push(chunk as { readonly type: string })
-    expect(chunks).toEqual([
-      expect.objectContaining({
-        type: 'finish',
-        reason: {
-          kind: 'error',
-          failure: expect.objectContaining({
-            message: 'a standard tool-result block cannot be produced by a model handler',
-          }),
-        },
-      }),
-    ])
     await ctx.fiber.dispose()
   })
 
@@ -1067,43 +602,6 @@ export default {
     await expect(adapter.command('session-1', '/account login')).resolves.toEqual(expect.objectContaining({
       result: { kind: 'success', text: 'copy the URL' },
     }))
-  })
-
-  it('projects commands only through a provider for one of their declared placements', async () => {
-    const commandLine = { apiVersion: 'example.tui/v1alpha1', kind: 'CommandLine' } as const
-    const commandPalette = { apiVersion: 'example.web/v1alpha1', kind: 'CommandPalette' } as const
-    const { adapter, ctx, agent } = await fixture(true, 'web', [commandLine])
-    const nativeAgent = agent as unknown as Parameters<typeof ctx.commands.list>[0]
-    expect(ctx.commands.list(nativeAgent))
-      .not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'account' })]))
-    expect(adapter.catalog('session-1', undefined, commandPalette).commands).toEqual([])
-    expect(adapter.catalog('session-1', undefined, commandLine).commands).toEqual([
-      expect.objectContaining({ name: 'account' }),
-    ])
-    await expect(adapter.command('session-1', '/account login')).resolves.toEqual(expect.objectContaining({
-      result: { kind: 'success', text: 'copy the URL' },
-    }))
-    const disposeProvider = adapter.registerCommandSurfaceProvider({
-      participantId: 'example.tui/command-line',
-      placement: commandLine,
-      register(resource, execute) {
-        return ctx.commands.register({
-          name: resource.metadata.name,
-          description: resource.spec.description ?? resource.spec.title,
-          input: { hint: 'subcommand' },
-          handler: async invocation => {
-            const result = await execute(invocation)
-            return result.kind === 'success'
-              ? { kind: 'success', ...(result.text === undefined ? {} : { text: result.text }), ...(result.sourceEventSeq === undefined ? {} : { sourceEventSeq: result.sourceEventSeq as never }) }
-              : { kind: 'error', text: result.text ?? 'command failed' }
-          },
-        })
-      },
-    })
-    expect(ctx.commands.list(nativeAgent)).toEqual(expect.arrayContaining([expect.objectContaining({ name: 'account' })]))
-    disposeProvider()
-    expect(ctx.commands.list(nativeAgent))
-      .not.toEqual(expect.arrayContaining([expect.objectContaining({ name: 'account' })]))
   })
 
   it('maps ToolOverride ownership to every live DSH agent tool view', async () => {
@@ -1397,268 +895,6 @@ export default {
     expect(KNOWN_SESSION_EVENT_TYPES.has(type)).toBe(true)
     await dispose()
     expect(KNOWN_SESSION_EVENT_TYPES.has(type)).toBe(true)
-  })
-
-  it('validates exact UI provider versions and defaults to V1 only', async () => {
-    const { adapter } = await fixture()
-    const surface = { apiVersion: 'example.ui/v1', kind: 'Settings' }
-    const provider: UiContributionProvider = {
-      participantId: 'ui/default',
-      support: { surfaces: [{ ...surface, modes: ['host-rendered'] }] },
-      register() { return () => undefined },
-    }
-    for (const apiVersions of [[], ['ui.dsh/unknown'], ['ui.dsh/v1alpha2', 'ui.dsh/v1alpha2']]) {
-      expect(() => adapter.registerUiContributionProvider(provider, {
-        apiVersions: apiVersions as ContributionHostApiVersion[],
-      })).toThrow(/apiVersions/)
-    }
-    const unregister = adapter.registerUiContributionProvider(provider)
-    const activate = vi.fn()
-    await expect(adapter.mount({
-      manifest: defineComponentManifest({
-        apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-        metadata: { name: 'example.v2-only', version: '1.0.0' },
-        spec: { facets: [{
-          name: 'ui',
-          activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'ui' } },
-          protocols: { requires: [contributionHostRequirementV2({ surfaces: [{ ...surface, mode: 'host-rendered' }] })] },
-        }] },
-      }), facet: 'ui', activate,
-    })).rejects.toThrow()
-    expect(activate).not.toHaveBeenCalled()
-    await unregister()
-  })
-
-  it.each([['ui.dsh/v1alpha2'], ['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2']] as const)(
-    'isolates exact UI grants and provider cleanup for %j', async (...apiVersions) => {
-      const { adapter } = await fixture()
-      const surface = { apiVersion: 'example.ui/v1', kind: 'Settings' }
-      const extra = { apiVersion: 'example.ui/v1', kind: 'Panel' }
-      const missing = { apiVersion: 'example.ui/v1', kind: 'Missing' }
-      const disposed: string[] = []
-      const unregister = adapter.registerUiContributionProvider({
-        participantId: 'ui/versioned',
-        support: { surfaces: [surface, extra].map(row => ({ ...row, modes: ['host-rendered'] })) },
-        register(_owner, contribution, context) {
-          return () => { expect(context.signal.aborted).toBe(true); disposed.push(contribution.descriptor.id) }
-        },
-      }, { apiVersions })
-      let v1: ContributionHostClient | undefined
-      let v2: ContributionHostClient | undefined
-      const dispose = await adapter.mount({
-        manifest: defineComponentManifest({
-          apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-          metadata: { name: 'example.versioned-ui', version: '1.0.0' },
-          spec: { facets: [{
-            name: 'ui',
-            activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'ui' } },
-            protocols: { requires: [
-              ...(apiVersions.some(version => version === 'ui.dsh/v1alpha1') ? [contributionHostRequirement({ surfaces: [{ ...surface, mode: 'host-rendered' }] })] : []),
-              contributionHostRequirementV2({
-                surfaces: [{ ...surface, mode: 'host-rendered' }],
-                optionalSurfaces: [extra, missing].map(row => ({ ...row, mode: 'host-rendered' })),
-              }),
-            ] },
-          }] },
-        }), facet: 'ui',
-        activate(activation) {
-          // Request V2 first: V1 must not reuse its larger facade.
-          v2 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })
-          v1 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha1', kind: 'ContributionHost' })
-          expect(v2!.surfaces.map(row => row.kind)).toEqual(['Settings', 'Panel'])
-          expect(() => v2!.register({ descriptor: { id: 'missing', surface: missing, content: {} } })).toThrow(/not negotiated/)
-          v2!.register({ descriptor: { id: 'same', surface, content: {} } })
-          v2!.register({ descriptor: { id: 'extra', surface: extra, content: {} } })
-          if (v1 !== undefined) {
-            expect(v1).not.toBe(v2)
-            expect(v1.surfaces.map(row => row.kind)).toEqual(['Settings'])
-            expect(() => v1!.register({ descriptor: { id: 'extra-v1', surface: extra, content: {} } })).toThrow(/not negotiated/)
-            expect(() => v1!.register({ descriptor: { id: 'same', surface, content: {} } })).toThrow(/duplicate/)
-            v1.register({ descriptor: { id: 'v1', surface, content: {} } })
-          }
-        },
-      })
-      await unregister()
-      expect(disposed.sort()).toEqual(v1 === undefined ? ['extra', 'same'] : ['extra', 'same', 'v1'])
-      expect(() => v2!.register({ descriptor: { id: 'late', surface, content: {} } })).toThrow(/closed/)
-      if (v1 !== undefined) expect(() => v1!.register({ descriptor: { id: 'late', surface, content: {} } })).toThrow(/closed/)
-      await dispose()
-      await unregister()
-      expect(disposed).toHaveLength(v1 === undefined ? 2 : 3)
-    },
-  )
-
-  it.each(['v1-only', 'both'])('does not revive old agreements after same-object provider re-registration (%s)', async mode => {
-    const { adapter } = await fixture()
-    const surface = { apiVersion: 'example.ui/v1', kind: 'Settings' }
-    const extra = { apiVersion: 'example.ui/v1', kind: 'Panel' }
-    const registered: string[] = []
-    const provider: UiContributionProvider = {
-      participantId: 'ui/reused-object',
-      support: { surfaces: [surface, extra].map(row => ({ ...row, modes: ['host-rendered'] })) },
-      register(_owner, contribution) {
-        const id = contribution.descriptor.id
-        registered.push(id)
-        return () => { registered.splice(registered.indexOf(id), 1) }
-      },
-    }
-    const versions = ['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2'] as const
-    const requirements = [
-      contributionHostRequirement({ surfaces: [{ ...surface, mode: 'host-rendered' }] }),
-      contributionHostRequirementV2({
-        surfaces: [{ ...surface, mode: 'host-rendered' }],
-        optionalSurfaces: [{ ...extra, mode: 'host-rendered' }],
-      }),
-    ]
-    const manifest = (name: string, requires = requirements) => defineComponentManifest({
-      apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-      metadata: { name, version: '1.0.0' },
-      spec: { facets: [{
-        name: 'ui',
-        activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'ui' } },
-        protocols: { requires },
-      }] },
-    })
-    const unregisterOld = adapter.registerUiContributionProvider(provider, { apiVersions: versions })
-    let oldV1: ContributionHostClient | undefined
-    let lateV2: () => ContributionHostClient | undefined = () => undefined
-    const disposeOld = await adapter.mount({
-      manifest: manifest('example.old-provider-agreement'), facet: 'ui',
-      activate(activation) {
-        oldV1 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha1', kind: 'ContributionHost' })
-        oldV1!.register({ descriptor: { id: 'old', surface, content: {} } })
-        lateV2 = () => activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })
-      },
-    })
-    await unregisterOld()
-    expect(registered).toEqual([])
-    const unregisterNew = mode === 'v1-only' ? adapter.registerUiContributionProvider(provider)
-      : adapter.registerUiContributionProvider(provider, { apiVersions: versions })
-    try {
-      expect(lateV2).toThrow(/unavailable/)
-      expect(() => oldV1!.register({ descriptor: { id: 'stale', surface, content: {} } })).toThrow(/closed/)
-      await disposeOld()
-      await unregisterOld()
-      const disposeNew = await adapter.mount({
-        manifest: manifest('example.new-provider-agreement', mode === 'v1-only' ? [requirements[0]!] : requirements), facet: 'ui',
-        activate(activation) {
-          activation.protocols.client<ContributionHostClient>({ apiVersion: 'ui.dsh/v1alpha1', kind: 'ContributionHost' })!
-            .register({ descriptor: { id: 'new', surface, content: {} } })
-          const v2 = activation.protocols.client<ContributionHostClient>({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })
-          if (mode === 'v1-only') expect(v2).toBeUndefined()
-          else v2!.register({ descriptor: { id: 'new-extra', surface: extra, content: {} } })
-        },
-      })
-      expect(registered.sort()).toEqual(mode === 'v1-only' ? ['new'] : ['new', 'new-extra'])
-      await disposeNew()
-      expect(registered).toEqual([])
-    } finally {
-      await disposeOld()
-      await unregisterNew()
-    }
-  })
-
-  it('revokes both Host clients immediately while provider cleanup is pending', async () => {
-    const { adapter } = await fixture()
-    const surface = { apiVersion: 'example.ui/v1', kind: 'Settings' }
-    let releaseSlow: () => void = () => undefined
-    const slow = new Promise<void>(resolve => { releaseSlow = resolve })
-    const disposed: string[] = []
-    const unregister = adapter.registerUiContributionProvider({
-      participantId: 'ui/pending',
-      support: { surfaces: [{ ...surface, modes: ['host-rendered'] }] },
-      register(_owner, contribution, context) {
-        return async () => {
-          expect(context.signal.aborted).toBe(true)
-          disposed.push(contribution.descriptor.id)
-          if (contribution.descriptor.id === 'slow-v1') await slow
-        }
-      },
-    }, { apiVersions: ['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2'] })
-    let v1: ContributionHostClient | undefined
-    let v2: ContributionHostClient | undefined
-    const dispose = await adapter.mount({
-      manifest: defineComponentManifest({
-        apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-        metadata: { name: 'example.ui-pending', version: '1.0.0' },
-        spec: { facets: [{
-          name: 'ui',
-          activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'ui' } },
-          protocols: { requires: [
-            contributionHostRequirement({ surfaces: [{ ...surface, mode: 'host-rendered' }] }),
-            contributionHostRequirementV2({ surfaces: [{ ...surface, mode: 'host-rendered' }] }),
-          ] },
-        }] },
-      }), facet: 'ui',
-      activate(activation) {
-        v1 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha1', kind: 'ContributionHost' })
-        v2 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })
-        v1!.register({ descriptor: { id: 'slow-v1', surface, content: {} } })
-        v2!.register({ descriptor: { id: 'fast-v2', surface, content: {} } })
-      },
-    })
-    const closing = unregister()
-    try {
-      expect(disposed.sort()).toEqual(['fast-v2', 'slow-v1'])
-      for (const client of [v1!, v2!]) {
-        expect(() => client.register({ descriptor: { id: 'late', surface, content: {} } })).toThrow(/closed/)
-      }
-    } finally {
-      releaseSlow()
-      await closing
-      await dispose()
-    }
-    expect(disposed).toHaveLength(2)
-  })
-
-  it.each(['provider', 'facet', 'activation'])('drains Host version clients after a failing disposer (%s)', async mode => {
-    const { adapter } = await fixture()
-    const settings = { apiVersion: 'example.ui/v1', kind: 'Settings' }
-    const panel = { apiVersion: 'example.ui/v1', kind: 'Panel' }
-    let v1: ContributionHostClient | undefined
-    const disposed: string[] = []
-    const unregister = adapter.registerUiContributionProvider({
-      participantId: 'ui/cleanup',
-      support: { surfaces: [settings, panel].map(surface => ({ ...surface, modes: ['host-rendered'] })) },
-      register(_owner, contribution) {
-        return () => {
-          disposed.push(contribution.descriptor.id)
-          expect(() => v1!.register({ descriptor: { id: 'late', surface: settings, content: {} } })).toThrow(/closed/)
-          if (contribution.descriptor.id === 'panel') throw new Error('provider cleanup failed')
-        }
-      },
-    }, { apiVersions: ['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2'] })
-    const mounting = adapter.mount({
-      manifest: defineComponentManifest({
-        apiVersion: 'manifest.dsh/internal/v1alpha1', kind: 'Component',
-        metadata: { name: 'example.ui-cleanup', version: '1.0.0' },
-        spec: { facets: [{
-          name: 'ui',
-          activation: { apiVersion: DSH_ACTIVATION_API_VERSION, kind: DSH_ACTIVATION_KIND, spec: { module: 'ui' } },
-          protocols: { requires: [
-            contributionHostRequirement({ surfaces: [{ ...settings, mode: 'host-rendered' }] }),
-            contributionHostRequirementV2({ surfaces: [{ ...panel, mode: 'host-rendered' }] }),
-          ] },
-        }] },
-      }), facet: 'ui',
-      activate(activation) {
-        v1 = activation.protocols.client({ apiVersion: 'ui.dsh/v1alpha1', kind: 'ContributionHost' })
-        v1!.register({ descriptor: { id: 'settings', surface: settings, content: {} } })
-        activation.protocols.client<ContributionHostClient>({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })!
-          .register({ descriptor: { id: 'panel', surface: panel, content: {} } })
-        if (mode === 'activation') throw new Error('activation failed')
-      },
-    })
-    if (mode === 'activation') await expect(mounting).rejects.toThrow()
-    else {
-      const dispose = await mounting
-      if (mode === 'provider') {
-        await expect(unregister()).rejects.toThrow(/failed to close/)
-        await dispose()
-      } else await expect(dispose()).rejects.toThrow()
-    }
-    expect(disposed.sort()).toEqual(['panel', 'settings'])
-    await unregister()
   })
 
   it('maps a negotiated local UI host into an activation-scoped client and retracts its contributions', async () => {

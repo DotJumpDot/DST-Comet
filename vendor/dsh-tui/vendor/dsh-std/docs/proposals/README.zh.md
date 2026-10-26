@@ -44,10 +44,8 @@ Core 只负责可拔插协议的声明与协商。其他提案可以使用 core�
 | `@dsh-std/model` | [Model Provider Catalog](model.zh.md) | 草案 |
 | `@dsh-std/tool` | [Tool Discovery](tool.zh.md) | 草案 |
 | `@dsh-std/session` | [Session Catalog, History and Events](session.zh.md) | 草案 |
-| `@dsh-std/skill` | [Skill Resources](skill.zh.md) | 草案 |
 | `@dsh-std/presentation` | [Presentation Operations](presentation.zh.md) | 草案 |
 | `@dsh-std/ui` | [UI Facets and Contributions](ui-contribution.zh.md) | 草案 |
-| `@dsh-std/ui-browser` | [Browser-realm UI Surfaces](ui-browser.zh.md) | 草案 |
 
 领域协议独立版本化。实现其中一项不表示实现其他项。
 
@@ -55,19 +53,9 @@ Core 只负责可拔插协议的声明与协商。其他提案可以使用 core�
 
 | 组件 | 提案 | 状态 |
 | --- | --- | --- |
-| Adapter | [Adapter 设计](adapter-dsh.zh.md) | 草案 |
-| `@dsh-std/adapter-dsh` | [本项目 Adapter 的实现](adapter-dsh-reference.zh.md) | 草案 |
-| Adapter 接入 | [Adapter 接入 std 所需接口](adapter-std-interfaces.zh.md) | 草案 |
+| `@dsh-std/adapter-dsh` | [DeepSeek Harness Adapter](adapter-dsh.zh.md) | 草案 |
 | Conformance | [Conformance and Validation](conformance.zh.md) | 探索性草案 |
 | Provenance | [Impact and Ownership Records](provenance.zh.md) | 探索性草案 |
-
-## 协商模型
-
-| 组件 | 提案 | 状态 |
-| --- | --- | --- |
-| Version Compatibility | [Protocol Version Compatibility and Negotiation](version-compatibility.zh.md) | 草案 |
-
-Core 不提供默认版本选择模型。版本兼容关系、选择算法、agreement 和失败语义由相应协议 definition 拥有。
 
 Adapter 是产品实现，不是可移植协议。Conformance 与 provenance 的包名在参考实现验证前暂不确定。
 

@@ -350,12 +350,15 @@ const darkTheme: Theme = {
   warning: rgb('#D8B270'), // Soft amber
   merged: rgb('#B3A0D4'), // Soft violet (matches autoAccept)
   warningShimmer: rgb('#E4C78E'),
-  diffAdded: rgb('#27392C'),
-  diffRemoved: rgb('#3E2A2C'),
-  diffAddedDimmed: rgb('#2B352C'),
-  diffRemovedDimmed: rgb('#362B2C'),
-  diffAddedWord: rgb('#57956B'),
-  diffRemovedWord: rgb('#B26671'),
+  // DST Comet vivid diffs: saturated add/remove backgrounds and brighter
+  // word colors — the upstream mist values (#2B352C / #362B2C panes,
+  // #57956B / #B26671 words) read as washed-out gray for edit review.
+  diffAdded: rgb('#1D4630'),
+  diffRemoved: rgb('#5C2430'),
+  diffAddedDimmed: rgb('#1F3A29'),
+  diffRemovedDimmed: rgb('#472129'),
+  diffAddedWord: rgb('#4ADE80'),
+  diffRemovedWord: rgb('#F87171'),
   toolCardBackground: rgb('#242B3A'), // lighter blue-grey card surface
   toolCardBackgroundDim: rgb('#1C2330'), // deeper blue substrate
   toolDotExec: rgb('#7FAE99'), // sage green — bash/pwsh

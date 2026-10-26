@@ -1,5 +1,12 @@
-import { ProtocolCatalog, type ApiReference, type ProtocolDeclaration, type ProtocolRequirement, type ProtocolSupport } from '@dsh-std/core'
-import { protocolKey, sameProtocol } from '@dsh-std/core/identity'
+import {
+  ProtocolCatalog,
+  protocolKey,
+  sameProtocol,
+  type ApiReference,
+  type ProtocolDeclaration,
+  type ProtocolRequirement,
+  type ProtocolSupport,
+} from '@dsh-std/core'
 import {
   defineComponentManifest,
   facetIdentity,
@@ -10,7 +17,7 @@ import {
   type ManifestExtension,
   type PermissionRequest,
 } from '@dsh-std/manifest'
-import { satisfiesVersionRange } from '@dsh-std/core/version'
+import { satisfiesVersionRange } from '@dsh-std/core'
 
 export const API_VERSION = 'composition.dsh/v1alpha1'
 
@@ -53,7 +60,6 @@ export interface CompositionIssue {
     | 'protocol-definition-unavailable'
     | 'potential-support-missing'
     | 'protocol-preflight-failed'
-    | 'protocol-binding-invalid'
     | 'permission-denied'
   readonly severity: 'error' | 'warning'
   readonly path?: string
@@ -61,90 +67,13 @@ export interface CompositionIssue {
   readonly message: string
 }
 
-function normalizeManifests(input: readonly ComponentManifest[]): readonly ComponentManifest[] {
-  const unique = new Map<string, ComponentManifest>()
-  for (const value of input) {
-    const manifest = defineComponentManifest(value)
-    unique.set(canonicalJson(manifest), manifest)
-  }
-  return Object.freeze([...unique.entries()]
-    .sort((left, right) => compareStrings(left[1].metadata.name, right[1].metadata.name)
-      || compareStrings(left[1].metadata.version, right[1].metadata.version)
-      || compareStrings(left[0], right[0]))
-    .map(([, manifest]) => manifest))
-}
-
-function validateBindings(
-  input: readonly ProtocolBinding[],
-  preflight: ProtocolPreflightInput,
-  output: ProtocolBinding[],
-  issues: CompositionIssue[],
-): void {
-  const requirements = new Map(preflight.requirements.map(row => [row.id, row]))
-  const supports = new Set(preflight.potentialSupports.map(row => row.id))
-  const occupied = new Set(output.map(row => row.requirementId))
-  for (const binding of input) {
-    const requirement = requirements.get(binding.requirementId)
-    const components = requirement === undefined ? [] : [requirement.facet.component]
-    if (requirement === undefined) {
-      issues.push(issue('protocol-binding-invalid', 'error', components, `binding references unknown requirement ${JSON.stringify(binding.requirementId)}`))
-      continue
-    }
-    if (occupied.has(binding.requirementId)) {
-      issues.push(issue('protocol-binding-invalid', 'error', components, `requirement ${JSON.stringify(binding.requirementId)} is bound more than once`))
-      continue
-    }
-    const supportIds = [...binding.supportIds]
-    const invalid = supportIds.find(id => !supports.has(id))
-    if (invalid !== undefined) {
-      issues.push(issue('protocol-binding-invalid', 'error', components, `binding references unknown support ${JSON.stringify(invalid)}`))
-      continue
-    }
-    if (new Set(supportIds).size !== supportIds.length) {
-      issues.push(issue('protocol-binding-invalid', 'error', components, `binding for ${JSON.stringify(binding.requirementId)} repeats a support`))
-      continue
-    }
-    occupied.add(binding.requirementId)
-    output.push(Object.freeze({
-      requirementId: binding.requirementId,
-      supportIds: Object.freeze(supportIds),
-    }))
-  }
-}
-
 export interface ProtocolPreflightInput {
-  readonly requirements: readonly ProtocolRequirementCandidate[]
-  readonly potentialSupports: readonly ProtocolSupportCandidate[]
-}
-
-export interface ProtocolRequirementCandidate {
-  readonly id: string
-  readonly facet: FacetIdentity
-  readonly requirement: ProtocolRequirement
-}
-
-export interface ProtocolSupportCandidate {
-  readonly id: string
-  readonly facet?: FacetIdentity
-  readonly participant?: string
-  readonly support: ProtocolSupport
-}
-
-/** One protocol-defined binding from a consumer requirement to compatible supports. */
-export interface ProtocolBinding {
-  readonly requirementId: string
-  readonly supportIds: readonly string[]
-}
-
-export interface ProtocolPreflightResult {
-  readonly issues?: readonly Omit<CompositionIssue, 'components'>[]
-  readonly bindings?: readonly ProtocolBinding[]
+  readonly requirements: readonly { readonly facet: FacetIdentity; readonly requirement: ProtocolRequirement }[]
+  readonly potentialSupports: readonly { readonly facet?: FacetIdentity; readonly participant?: string; readonly support: ProtocolSupport }[]
 }
 
 export interface ProtocolCompositionRule extends ApiReference {
-  preflight(input: ProtocolPreflightInput):
-    | readonly Omit<CompositionIssue, 'components'>[]
-    | ProtocolPreflightResult
+  preflight(input: ProtocolPreflightInput): readonly Omit<CompositionIssue, 'components'>[]
   composeExtensions?(input: {
     readonly extensions: readonly { readonly owner: FacetIdentity; readonly extension: ManifestExtension }[]
   }): readonly Omit<CompositionIssue, 'components'>[]
@@ -177,8 +106,6 @@ export interface CompositionPlan {
   readonly selected: readonly SelectedFacet[]
   readonly skipped: readonly SkippedFacet[]
   readonly activationOrder: readonly string[]
-  /** Protocol-defined provision/injection bindings. Absent on legacy plans. */
-  readonly bindings?: readonly ProtocolBinding[]
   readonly extensions: readonly { readonly owner: FacetIdentity; readonly extension: ManifestExtension }[]
   readonly issues: readonly CompositionIssue[]
 }
@@ -200,8 +127,8 @@ export class CompositionRuleCatalog {
 }
 
 export function compose(input: CompositionInput, rules = new CompositionRuleCatalog()): CompositionPlan {
+  const manifests = input.manifests.map(defineComponentManifest).sort((left, right) => left.metadata.name.localeCompare(right.metadata.name))
   const issues: CompositionIssue[] = []
-  const manifests = normalizeManifests(input.manifests)
   const byComponent = new Map<string, ComponentManifest>()
   for (const manifest of manifests) {
     const existing = byComponent.get(manifest.metadata.name)
@@ -212,11 +139,11 @@ export function compose(input: CompositionInput, rules = new CompositionRuleCata
   checkRelationships(manifests, byComponent, issues)
 
   const requested = new Map((input.select ?? []).map(selector => [`${selector.component}\0${selector.facet}`, selector]))
-  const drivers = [...input.drivers].sort((left, right) => compareStrings(left.id, right.id))
+  const drivers = [...input.drivers].sort((left, right) => left.id.localeCompare(right.id))
   const selected: SelectedFacet[] = []
   const skipped: SkippedFacet[] = []
   for (const manifest of manifests) {
-    for (const facet of [...manifest.spec.facets].sort((left, right) => compareStrings(left.name, right.name))) {
+    for (const facet of [...manifest.spec.facets].sort((left, right) => left.name.localeCompare(right.name))) {
       const identity = facetIdentity(manifest, facet)
       const selector = requested.get(`${identity.component}\0${identity.facet}`)
       if (input.select !== undefined && selector === undefined) {
@@ -254,24 +181,14 @@ export function compose(input: CompositionInput, rules = new CompositionRuleCata
     }
   }
 
-  const liveSupports = (input.liveDeclarations ?? []).flatMap(declaration => (declaration.supports ?? []).map((support, index) => ({
-    id: `participant:${declaration.participant.id}:supports:${protocolKey(support)}:${String(index)}`,
-    participant: declaration.participant.id,
-    support,
+  const liveSupports = (input.liveDeclarations ?? []).flatMap(declaration => (declaration.supports ?? []).map(support => ({
+    participant: declaration.participant.id, support,
   })))
   const potentialSupports = [
-    ...selected.flatMap(row => (row.facet.protocols?.supports ?? []).map((support, index) => ({
-      id: `${facetKey(row.identity)}:supports:${protocolKey(support)}:${String(index)}`,
-      facet: row.identity,
-      support,
-    }))),
+    ...selected.flatMap(row => (row.facet.protocols?.supports ?? []).map(support => ({ facet: row.identity, support }))),
     ...liveSupports,
   ]
-  const requirements = selected.flatMap(row => (row.facet.protocols?.requires ?? []).map((requirement, index) => ({
-    id: `${facetKey(row.identity)}:requires:${protocolKey(requirement)}:${String(index)}`,
-    facet: row.identity,
-    requirement,
-  })))
+  const requirements = selected.flatMap(row => (row.facet.protocols?.requires ?? []).map(requirement => ({ facet: row.identity, requirement })))
   const preflightByDefinition = new Map<object, ProtocolPreflightInput>()
   for (const row of requirements) {
     const definition = input.protocols.resolve(row.requirement)
@@ -295,21 +212,15 @@ export function compose(input: CompositionInput, rules = new CompositionRuleCata
       potentialSupports: [...new Set([...existing.potentialSupports, ...candidates])],
     })
   }
-  const bindings: ProtocolBinding[] = []
   for (const [definition, preflight] of preflightByDefinition) {
     const rule = rules.resolve(definition as ApiReference)
     if (rule === undefined) continue
-    const returned = rule.preflight(Object.freeze({
+    for (const row of rule.preflight(Object.freeze({
       requirements: Object.freeze(preflight.requirements),
       potentialSupports: Object.freeze(preflight.potentialSupports),
-    }))
-    const result: ProtocolPreflightResult = Array.isArray(returned)
-      ? { issues: returned }
-      : returned as ProtocolPreflightResult
-    for (const row of result.issues ?? []) {
+    }))) {
       issues.push(Object.freeze({ ...row, components: Object.freeze(preflight.requirements.map(item => item.facet.component)) }))
     }
-    validateBindings(result.bindings ?? [], preflight, bindings, issues)
   }
 
   const extensions = [
@@ -338,15 +249,17 @@ export function compose(input: CompositionInput, rules = new CompositionRuleCata
     }
   }
 
-  const activationOrder = facetActivationOrder(manifests, selected, bindings, potentialSupports, requirements, issues)
+  const order = componentOrder(manifests, issues)
+  const activationOrder = order.flatMap(component => selected
+    .filter(row => row.identity.component === component)
+    .map(row => facetKey(row.identity)))
   return Object.freeze({
     apiVersion: API_VERSION,
-    revision: digestInput(manifests, selected, input.liveDeclarations ?? [], bindings),
+    revision: digestInput(manifests, selected, input.liveDeclarations ?? []),
     compatible: !issues.some(row => row.severity === 'error'),
     selected: Object.freeze(selected),
     skipped: Object.freeze(skipped),
     activationOrder: Object.freeze(activationOrder),
-    bindings: Object.freeze(bindings),
     extensions: Object.freeze(extensions),
     issues: Object.freeze(issues),
   })
@@ -385,63 +298,31 @@ function checkRelationships(
   }
 }
 
-function facetActivationOrder(
-  manifests: readonly ComponentManifest[],
-  selected: readonly SelectedFacet[],
-  bindings: readonly ProtocolBinding[],
-  supports: readonly ProtocolSupportCandidate[],
-  requirements: readonly ProtocolRequirementCandidate[],
-  issues: CompositionIssue[],
-): readonly string[] {
-  const nodes = new Map(selected.map(row => [facetKey(row.identity), row]))
-  const outgoing = new Map([...nodes.keys()].map(id => [id, new Set<string>()]))
-  const indegree = new Map([...nodes.keys()].map(id => [id, 0]))
-  const addEdge = (from: string, to: string) => {
-    if (from === to || !nodes.has(from) || !nodes.has(to) || outgoing.get(from)?.has(to)) return
-    outgoing.get(from)?.add(to)
-    indegree.set(to, (indegree.get(to) ?? 0) + 1)
-  }
+function componentOrder(manifests: readonly ComponentManifest[], issues: CompositionIssue[]): readonly string[] {
+  const ids = new Set(manifests.map(row => row.metadata.name))
+  const outgoing = new Map([...ids].map(id => [id, new Set<string>()]))
+  const indegree = new Map([...ids].map(id => [id, 0]))
   for (const manifest of manifests) {
     for (const target of Object.keys(manifest.spec.relationships?.depends ?? {})) {
-      for (const provider of selected.filter(row => row.identity.component === target)) {
-        for (const consumer of selected.filter(row => row.identity.component === manifest.metadata.name)) {
-          addEdge(facetKey(provider.identity), facetKey(consumer.identity))
-        }
-      }
+      if (!ids.has(target)) continue
+      outgoing.get(target)?.add(manifest.metadata.name)
+      indegree.set(manifest.metadata.name, (indegree.get(manifest.metadata.name) ?? 0) + 1)
     }
   }
-  const requirementById = new Map(requirements.map(row => [row.id, row]))
-  const supportById = new Map(supports.map(row => [row.id, row]))
-  for (const binding of bindings) {
-    const consumer = requirementById.get(binding.requirementId)?.facet
-    if (consumer === undefined) continue
-    for (const supportId of binding.supportIds) {
-      const provider = supportById.get(supportId)?.facet
-      if (provider !== undefined) addEdge(facetKey(provider), facetKey(consumer))
-    }
-  }
-  const ready = [...nodes.keys()].filter(id => indegree.get(id) === 0).sort(compareStrings)
+  const ready = [...ids].filter(id => indegree.get(id) === 0).sort()
   const result: string[] = []
   while (ready.length > 0) {
     const id = ready.shift() as string
     result.push(id)
-    for (const next of [...(outgoing.get(id) ?? [])].sort(compareStrings)) {
+    for (const next of [...(outgoing.get(id) ?? [])].sort()) {
       indegree.set(next, (indegree.get(next) ?? 1) - 1)
-      if (indegree.get(next) === 0) { ready.push(next); ready.sort(compareStrings) }
+      if (indegree.get(next) === 0) { ready.push(next); ready.sort() }
     }
   }
-  if (result.length !== nodes.size) {
-    const blocked = [...nodes.keys()].filter(id => !result.includes(id))
-    issues.push(issue(
-      'dependency-cycle', 'error', [...new Set(blocked.map(id => nodes.get(id)!.identity.component))],
-      'component relationships and protocol bindings contain an activation cycle',
-    ))
+  if (result.length !== ids.size) {
+    issues.push(issue('dependency-cycle', 'error', [...ids], 'component dependency graph contains a cycle'))
   }
   return Object.freeze(result)
-}
-
-function compareStrings(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0
 }
 
 function facetPath(manifest: ComponentManifest, facet: ComponentFacet): string {
@@ -456,31 +337,12 @@ function issue(
 
 function digestInput(
   manifests: readonly ComponentManifest[], selected: readonly SelectedFacet[], declarations: readonly ProtocolDeclaration[],
-  bindings: readonly ProtocolBinding[],
 ): string {
-  const input = canonicalJson({
-    manifests,
+  const input = JSON.stringify({
+    manifests: manifests.map(row => [row.metadata.name, row.metadata.version]),
     facets: selected.map(row => facetKey(row.identity)),
     declarations,
-    bindings,
   })
-  return fnv1a(input)
-}
-
-function canonicalJson(value: unknown): string {
-  return JSON.stringify(canonicalValue(value))
-}
-
-function canonicalValue(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(canonicalValue)
-  if (value === null || typeof value !== 'object') return value
-  return Object.fromEntries(Object.entries(value as Record<string, unknown>)
-    .filter(([, nested]) => nested !== undefined)
-    .sort(([left], [right]) => compareStrings(left, right))
-    .map(([key, nested]) => [key, canonicalValue(nested)]))
-}
-
-function fnv1a(input: string): string {
   let hash = 2166136261
   for (let index = 0; index < input.length; index += 1) hash = Math.imul(hash ^ input.charCodeAt(index), 16777619)
   return `fnv1a32:${(hash >>> 0).toString(16).padStart(8, '0')}`

@@ -8,6 +8,7 @@ import { Box, Text, useTerminalSize } from '../../ui.js'
 import { t } from '../../i18n.js'
 import type { ChannelUi } from '../../adapter/channel/ui-policy.js'
 import { useSurfaceEdges } from '../SurfaceEdges.js'
+import { installedTuiVersion } from '../../update.js'
 import { PanelBar, type PanelBarTab } from './PanelBar.js'
 import { PanelHost } from './PanelHost.js'
 import { panelStore } from './PanelStore.js'
@@ -62,6 +63,21 @@ function EmptyNone(): React.ReactNode {
   )
 }
 
+/** DST Comet brand header: a compact two-row splash pinned above the panel
+ *  bar — the product mark and the live model·effort line (the sidebar's
+ *  take on the boot splash's 「◆ dsh-TUI v… / model · effort」 block). */
+function BrandHeader({ width, channel }: { readonly width: number; readonly channel: ChannelUi }): React.ReactNode {
+  const version = installedTuiVersion()
+  const mark = `◆ DST·Comet${version !== undefined ? ' v' + version : ''}`
+  const meta = [channel.model, channel.reasoningEffort].filter(part => part !== undefined && part !== '').join(' · ')
+  return (
+    <Box flexDirection="column" flexShrink={0} paddingX={1} width={width}>
+      <Text bold color="accent" wrap="truncate-end">{mark}</Text>
+      <Text dimColor wrap="truncate-end">{meta}</Text>
+    </Box>
+  )
+}
+
 export function SidePanelColumn({ width, controller, channel, activity, attention, onExpand, trajectory }: SidePanelColumnProps): React.ReactNode {
   const focused = controller.focus === 'panel'
   const { rows } = useTerminalSize()
@@ -107,10 +123,11 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
     // controller 对象本身每次渲染都是新的，不能进依赖表。
     [controller.openPanel],
   )
-  // Host 高度 = 列高 - PanelBar/上规/下规/hint 四行 chrome。
-  const hostHeight = Math.max(1, rows - 4)
+  // Host 高度 = 列高 - 品牌头(2) - PanelBar/上规/下规/hint 四行 chrome。
+  const hostHeight = Math.max(1, rows - 6)
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
+      <BrandHeader width={width} channel={channel} />
       <PanelBar
         tabs={tabs}
         activeId={controller.activePanelId}

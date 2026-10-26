@@ -12,12 +12,10 @@ Each package owns one independently versioned part of the proposal. Consumers sh
 | [`@dsh-std/lifecycle`](lifecycle/README.md) | Activation instances, cleanup, and the publication barrier | No |
 | [`@dsh-std/sdk`](sdk/README.md) | TypeScript facet and typed-protocol helpers | No |
 | [`@dsh-std/command`](command/README.md) | Declarative human-command trees | No |
-| [`@dsh-std/ui-browser`](ui-browser/README.md) | Optional browser-realm UI surfaces and module ABI | No |
 | [`@dsh-std/storage`](storage/README.md) | Component-private JSON key-value storage | No |
 | [`@dsh-std/messages`](messages/README.md) | Read-only message observation events | No |
 | [`@dsh-std/model`](model/README.md) | ModelProvider resources and the shared ModelCatalog | No |
 | [`@dsh-std/tool`](tool/README.md) | Tool discovery and live availability | No |
-| [`@dsh-std/skill`](skill/README.md) | Declarative, lazily loaded Skill instruction resources | No |
 | [`@dsh-std/presentation`](presentation/README.md) | Invocation-scoped user-facing operations | No |
 | [`@dsh-std/connection`](connection/README.md) | Endpoint negotiation and implementation-neutral invocation | No |
 | [`@dsh-std/adapter-dsh`](adapter-dsh/README.md) | DeepSeek Harness and Cordis integration | Yes |

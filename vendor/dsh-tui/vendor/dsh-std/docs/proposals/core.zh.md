@@ -49,7 +49,7 @@ Core 提供共同的声明外壳和协商入口。领域协议负责解释自身
 
 ```ts
 interface ProtocolDeclaration {
-  readonly participant: { readonly id: string }
+  readonly participant: ParticipantIdentity
   readonly requires?: readonly ProtocolRequirement[]
   readonly supports?: readonly ProtocolSupport[]
 }
@@ -59,7 +59,7 @@ interface ProtocolDeclaration {
 
 `supports` 表示该参与者在当前协商范围内实际可用的协议实现。安装了某个包、在静态清单中提到某项协议，或者能够解析其数据，都不能代替运行中的 support 声明。
 
-Requirement 和 support 可以携带由所属协议定义的 `spec`。Core 保留该数据，但不解释其字段。非空 `spec` 必须（MUST）是 lossless JSON 数据：有限数字、字符串、布尔值、null、数组或仅含这些值的普通对象；Date、Map、函数、循环引用和嵌套 `undefined` 必须拒绝。旧版 TypeScript 调用显式写出的 `spec: undefined` 继续等价于省略该字段。
+Requirement 和 support 可以携带由所属协议定义的 `spec`。Core 保留该数据，但不解释其字段：
 
 ```ts
 interface ProtocolRequirement extends ApiReference {
@@ -125,8 +125,6 @@ interface ApiReference {
 
 `apiVersion` 由协议 group 和版本组成，`kind` 标识该 group 中的协议。二者共同确定一份版本化协议。
 
-`kind` 必须（MUST）匹配 `^[A-Z][A-Za-z0-9]*$`：它以 ASCII 大写字母开头，后续只能包含 ASCII 字母或数字。空字符串、Unicode 字母、连字号和下划线均不是合法的 Core 协议 `kind`。Evaluator 必须（MUST）在注册 definition、解析声明或查询坐标时拒绝不符合该语法的引用。
-
 Core 可以解析版本标识并建立候选集合，但不假定同一 major 下的 alpha、beta 和 stable 必然互通。精确版本之外的兼容关系由该协议的 definition 声明。没有对应 definition 时，evaluator 不能声称已经完成该协议的协商。
 
 Core 不根据 group 名称判断协议是否属于某个标准集合。命名空间归属与保留规则、协议发布状态和目录收录规则由相应治理或分发机制规定，不属于协商算法。只要坐标、definition 和声明满足本协议，evaluator 对它们采用相同的校验与协商过程。
@@ -141,7 +139,7 @@ Core 只要求身份在当前协商范围内唯一。身份如何认证、是否
 
 Manifest facet 不是 participant。Facet 是发行物中的静态声明和激活单位；participant 是 coordinator 为 activation instance 创建、实际参加某次协商的运行实体。组件模型第一版令一个 activation instance 对应一个本地 participant；同一 facet 的多次激活仍会产生不同 participants。产品也可以产生没有 manifest facet 的内建 participant。
 
-Core 不把 component id、facet name 或进程位置规定为 participant 身份的固定字段。需要归属信息的实现通过 lifecycle/provenance 保存本地关联；向连接对端公开哪些关联由 connection view 和 policy 决定。
+Core 不把 component id、facet name 或进程位置规定为 `ParticipantIdentity` 的固定字段。需要归属信息的实现通过 lifecycle/provenance 保存本地关联；向连接对端公开哪些关联由 connection view 和 policy 决定。
 
 ### Protocol definition
 
@@ -150,20 +148,15 @@ Core 不把 component id、facet name 或进程位置规定为 participant 身�
 ```ts
 interface ProtocolDefinition<RequirementSpec = unknown, SupportSpec = unknown, Agreement = unknown>
   extends ApiReference {
-  readonly accepts?: readonly string[]
-  validateRequirement(spec: unknown, context: ApiReference): RequirementSpec
-  validateSupport(spec: unknown, context: ApiReference): SupportSpec
-  readonly validateAgreement?: (agreement: unknown, context: ApiReference) => Agreement
-  negotiate(input: ProtocolNegotiationInput<RequirementSpec, SupportSpec>): ProtocolNegotiationOutcome<Agreement>
+  validateRequirement(spec: unknown): RequirementSpec
+  validateSupport(spec: unknown): SupportSpec
+  negotiate(input: ProtocolNegotiationInput<RequirementSpec, SupportSpec>): ProtocolNegotiationResult<Agreement>
 }
 ```
 
 具体 TypeScript API 可以为 schema-only 协议提供默认适配器，但不得改变以下语义：
 
 - 协议专属字段由协议 definition 拥有；
-- `accepts` 只表示同一 definition 能识别哪些准确坐标，不推断这些版本兼容；
-- validator 接收原始 `apiVersion + kind` 上下文，并按该准确版本校验 `spec`；
-- 新 definition 可以通过 `validateAgreement` 在 agreement 发布与 plan digest 之前执行 definition-owned 校验和规范化；为兼容既有 `v1alpha1` definition，该成员可省略；
 - 协商结果可由其他符合规范的实现独立复算；
 - 注册顺序不影响结果；
 - definition 不因被注册而产生一项 live implementation。
@@ -175,17 +168,13 @@ Evaluator 在解释一项协议专属 `spec` 前必须取得能够处理该坐�
 一次 core 协商产生机器可读报告。报告至少包含：
 
 - 参与协商的声明及其 revision 或 digest；
-- 负责处理该组声明的 definition 主坐标；
+- 每份已处理协议所选的 API version；
 - 各协议 definition 产生的 agreement；
 - 缺失的可选 requirement；
 - 阻止协商的 issue 及其声明路径；
 - evaluator 的身份与版本。
 
 Agreement 是协议拥有的数据。Core 不假定它一定是 RPC binding、资源选择或权限 grant。调用方也不能仅凭 agreement 绕过相应协议和产品实现的授权检查。
-
-Definition 提供 `validateAgreement` 时，Evaluator 必须（MUST）在报告发布前调用它；失败产生 definition error，未经校验的 agreement 不得进入报告。需要跨 endpoint 或进入 plan digest 的 agreement 必须是 lossless JSON 数据。进程内 definition 即使使用更丰富的临时对象，也必须在返回 agreement 前投影为该数据边界。
-
-当一份 definition 识别多个 `apiVersion` 时，Core report 的协议坐标仍是 definition 主坐标。请求版本、support 版本和最终采用的 contract dialect 由协议自己的 agreement 按[协议版本兼容与协商提案](version-compatibility.zh.md)记录；Core 不提供通用的版本选择字段。
 
 ### Determinism
 
@@ -245,17 +234,6 @@ Core 不能独自判断领域协议是否真正兼容。Evaluator 必须安装�
 一旦 core 认识 endpoint、presentation、session 或 transport 字段，新增协议就需要修改元协议。协议专属内容保留在其 `spec` 和 agreement 中，并由对应 definition 校验。
 
 ## Implementation boundary
-
-TypeScript 参考实现按用途提供四个入口：
-
-| 入口 | 内容 |
-| --- | --- |
-| `@dsh-std/core` | 协议声明、definition、catalog 与协商报告 |
-| `@dsh-std/core/identity` | 协议坐标的校验、比较与索引键 |
-| `@dsh-std/core/json` | 协议 JSON 数据校验与冻结快照 |
-| `@dsh-std/core/version` | 组件包的 SemVer 与版本范围工具 |
-
-参与者身份直接使用 `{ id }`，评估器身份直接使用 `{ name, version }`。校验上下文使用 `ApiReference`，协商输入的每行直接包含 participant 和相应 requirement 或 support。
 
 `@dsh-std/core` 的参考实现只保留通用协议标识、声明、definition catalog 与协商分派。早期原型中的 `DshResource`、`ExecutionPlane`、插件关系、`PluginRegistry` 和 `RuntimeSnapshot` 已迁移出 core：
 

@@ -2,88 +2,27 @@
 
 [English](README.md) | 中文
 
-DeepSeek Harness 的产品适配层，将标准组件接入 DSH 的命令、工具、模型、会话和浏览器 UI。
+DeepSeek Harness 的产品适配层。设计见 [DeepSeek Harness Adapter](../../docs/proposals/adapter-dsh.zh.md)。Cordis、Typert、Agent 与 DSH command registry 的类型止于此包。
 
-本包提供本项目兼容的adapter产品,供集成方使用.
+`DshStandardAdapter` 持有协议 definition catalog、manifest definition catalog、activation drivers、lifecycle coordinator 和 connection endpoint。它不是全局插件注册表。
 
-## 安装
+这个包自身是 DSH profile bundle；安装后由 `cordis.patch.yml` 激活。adapter 会读取当前 profile 的普通 dependencies，发现并校验其中的 Community v0.15 `dsh-plugin.json`，协商 `requires.contracts`，再装载 `facets.host.entry`。标准插件本身不需要声明 `dsh.bundle`，也不需要引用这个 adapter。
 
-将 Adapter 和标准组件安装到同一 profile：
+在 Web profile 中，同一个包还通过 `dsh.client` 提供普通 DSH browser half。Host discovery 只有在原生 `clientModules` service 已经存在，并且组件声明了 `dsh.client.platform: "web"` 时，才会挂载该组件的 browser half。TUI 与 headless profile 会在读取、装载 browser metadata 之前返回；全部 Web peer 也是 optional。
+
+Browser half 持有 DSH 专属的 `SettingsSection` 与 `ToolCallView` surfaces。它用 `slots.inject()` 等待对应的原生 slot，通过协商为 Web facet 签发 activation-scoped `ui.dsh/v1alpha1 ContributionHost`，并在 facet 卸载时撤销全部 slot registration。组件通过 `@dsh-std/adapter-dsh/client` 的 `defineDshWebUiFacet()` 接入；原始 slot 名与 Cordis context 不进入可移植 UI 代码。
+
+Host 需要先发布内建 participant 时，可以用 `discover: false` 只启动 adapter core，并在这些 publication 就绪后挂载 `@dsh-std/adapter-dsh/profile-loader`。后者只执行 profile component discovery 与 activation，不会创建第二个 adapter。
 
 ```sh
 dsh plugin --profile web add @dsh-std/adapter-dsh
 dsh plugin --profile web add <standard-component>
 ```
 
-## 运行方式
+其他宿主也可以直接调用 `mount()`，但模块解析和产品服务映射属于宿主 adapter 的职责；它们不进入标准组件。
 
-本包是 DSH profile bundle，由 `cordis.patch.yml` 激活。Adapter 读取当前 profile 的 dependencies，发现 Community v0.15 `dsh-plugin.json`，检查 Host API，并在导入每个 host facet 入口前校验与预检静态声明。未知的必需 contract 或缺少 live 支持的必需 contract 会在模块求值前拒绝该 facet；缺少可选 contract 不阻止加载。仅已安装的 provider 不算 live 能力。
+Entrypoint 在激活期间通过 `context.protocols.implement()` 与 `context.extensions.publish()` 暂存事实。只有激活成功、静态范围校验及协议协商通过后，它们才越过 publication barrier，进入 live publication 与 connection offer。激活失败或卸载会按 activation instance owner 撤销全部结果。
 
-导入后，`mount()` 在激活前依据当前 live 发布再次检查。预检只覆盖 manifest 可读的需求，不预判只有执行动态代码才能发现的需求，也不代替运行时协商或回滚。
+当前 DSH 映射实现 `CommandRuntime`、`ModelCatalog`、本地 `Tool` / `ToolOverride` activation 与 browser-local UI contribution，并在协议目录中装载 `MessageObserver`、`LocalStorage` 与 Presentation definitions。工具函数不会穿过 connection endpoint；adapter 把它们注册进 DSH 原生 registry，并在每次已接受调用中提供 DSH 的模型、附件、filesystem observed、write-intent、sandbox 与嵌套 context 语义。装载 definition 不会发布相应 support；只有实际 Host participant 越过 publication barrier 后，required contract 才能协商成功。命令和模型目录只使用 active facet 已发布的 extension，并保留 component、facet、participant provenance。Adapter 不会把 Presentation 操作序列化到命令结果；当前 agreement 的类型化 client 必须由 Connection Host 按 invocation scope 提供。
 
-`DshStandardAdapter` 组织协议协商与激活，向组件提供所需 API，并将组件发布的能力接入产品服务。宿主侧需要 `sessionController` 服务。
-
-需要先提供宿主内建能力时，可设置 `discover: false` 启动 Adapter，再加载 `@dsh-std/adapter-dsh/profile-loader` 执行组件发现与激活。集成方也可以直接调用 `mount()`，提交声明、facet 名称和激活函数。
-
-## 提供的能力
-
-| 能力 | 接入方式 |
-| --- | --- |
-| 命令 | 提供命令目录和 `CommandRuntime`；产品 UI 注册对应 placement 的 provider 后，命令进入该 UI 的原生命令入口 |
-| 模型 | 将模型处理函数接入 DSH LLM registry，并提供 `ModelCatalog` |
-| 工具 | 将 `Tool` 和 `ToolOverride` 接入 Agent 的工具运行环境 |
-| Skill | 接入原生 Skill provider registry，按请求读取包内 Markdown |
-| 会话 | 提供 `SessionCatalog` 的 list/get/create/rename，以及 `SessionHistory` 的 read/follow |
-| 浏览器 UI | 加载标准浏览器模块，提供 `SettingsSection` 和 `ToolCallView` surfaces |
-
-工具在 DSH 本地执行，使用产品提供的模型、附件、文件访问、写入意图、sandbox 和嵌套上下文。
-
-浏览器部分读取 `LocalModule` 声明，提供包内模块产物并接入原生 UI slot。UI 注册随所属 facet 停用而撤销。DSH 的“插件”页显示标准组件及其运行状态。
-
-## UI ContributionHost 版本
-
-Host 集成调用 `registerUiContributionProvider(provider)` 时默认只声明 `ui.dsh/v1alpha1`，保持已有行为。显式启用时，第二个参数传入 `{ apiVersions: ['ui.dsh/v1alpha2'] }` 或 `{ apiVersions: ['ui.dsh/v1alpha1', 'ui.dsh/v1alpha2'] }`。空列表、未知版本与重复版本会被拒绝。Support 描述 provider 实际提供的 surfaces；V1 support 不满足 V2 requirement。撤销后重新注册相同 provider 对象或 participant 不得恢复旧 agreement；consumer 必须通过新的 activation 与新注册协商。
-
-独立 browser runtime 为 SettingsSection 与 ToolCallView surfaces 实际声明两个精确 ContributionHost 版本。Facet 按其声明且实际获得 surface 授权的版本分别取得 client，每个 client 只含该版本的已协商授权。整体 optional requirement 没有可用 surface 时，agreement 与 warning 仍可查询，但不授予 client。V2 至少要求一个必需 surface；缺失的 `optionalSurfaces` 产生协商 warning，并从 client 中省略。缺失或未声明的 surface 不能注册。同一 activation、同一 surface 的 contribution ID 在两个版本间仍保持唯一；释放 lease 后可复用 ID。Facet 激活失败、卸载及 Host provider 撤销会关闭受影响的所有版本 client，并撤销注册。
-
-Community v0.15 browser facet 使用已有的 namespaced `contributes['x-dev.dsh-std.extensions']` lane，不改变根级 `requires` 或 `panels`：
-
-```json
-{
-  "id": "example.settings.browser",
-  "apiVersion": "browser.ui.dsh/v1alpha1",
-  "kind": "LocalModule",
-  "name": "browser",
-  "spec": {
-    "module": "dist/client.js",
-    "requirements": [{
-      "apiVersion": "ui.dsh/v1alpha2",
-      "kind": "ContributionHost",
-      "spec": {
-        "surfaces": [{ "apiVersion": "browser.ui.dsh/v1alpha1", "kind": "SettingsSection", "mode": "local-module" }],
-        "optionalSurfaces": [{ "apiVersion": "browser.ui.dsh/v1alpha1", "kind": "ToolCallView", "mode": "local-module" }]
-      }
-    }]
-  }
-}
-```
-
-发现流程经 manifest 投影与 module transport 保留这些 browser 独立 requirements。Module 通过 `context.protocols.client({ apiVersion: 'ui.dsh/v1alpha2', kind: 'ContributionHost' })` 取得 client，并在注册可选 view 前检查 client 的 surfaces。LocalModule ABI 自身仍为 `browser.ui.dsh/v1alpha1`；这不引入 TUI module ABI，也不授予其他领域 API。
-
-## 发布与清理
-
-组件在激活期间通过 `context.protocols.implement()` 登记协议实现，通过 `context.extensions.publish()` 登记扩展处理函数。激活、校验和协商成功后，这些能力进入可调用状态。
-
-注册项关联到本次激活实例。激活失败、卸载或停止时，Adapter 按实例撤销能力、产品注册和连接声明。
-
-## 会话创建请求
-
-`SessionCatalog.create` 按 request ID 保存初始输入和完成结果。实例内重复请求返回原结果并保留后续改名；同一 ID 改变输入会返回错误。调用方应使用全局唯一的 request ID。
-
-请求记录保存在 Adapter 实例内。Adapter 重建后，重复请求若对应已有会话，则返回该会话的当前状态，并保留已有标题。
-
-## 文档
-
-- [Adapter 设计](../../docs/proposals/adapter-dsh.zh.md)：Adapter 的作用及其在 std 中的位置。
-- [本项目 Adapter 的实现](../../docs/proposals/adapter-dsh-reference.zh.md)：加载、激活、产品接入与卸载。
-- [Adapter 接入 std 所需接口](../../docs/proposals/adapter-std-interfaces.zh.md)：自行实现 Adapter 时需要对接的接口。
+Typert 只是 DSH 当前暴露 adapter service 的方式，不是 `@dsh-std/connection` 的线协议要求。
