@@ -1,0 +1,284 @@
+/**
+ * Deferred interleavings for the model/preset/workspace action factories.
+ *
+ * This exercises actual action closures, rather than source tokens: a stale
+ * completion must not change a replacement binding's selection, session facts,
+ * preferences, or published workspace breadcrumb.
+ */
+import assert from 'node:assert/strict'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+
+// Isolate HOME/USERPROFILE BEFORE the src imports: a successful setEffort
+// persists the effort preference through effortPrefs, whose DATA_DIR
+// resolves from homedir() at module load (POSIX reads HOME, Windows reads
+// USERPROFILE — both point at the throwaway dir so a green run can never
+// touch the real ~/.dsh-tui/effort.json).
+const isolatedHome = mkdtempSync(join(tmpdir(), 'dshtui-effort-fences-'))
+process.env.HOME = isolatedHome
+process.env.USERPROFILE = isolatedHome
+const { createModelActions } = await import('../src/dsh-adapter/channel/model-actions.js')
+const { createWorkspaceActions } = await import('../src/dsh-adapter/channel/workspace-actions.js')
+
+type Deferred<T> = { promise: Promise<T>; resolve(value: T): void; reject(error: unknown): void }
+const deferred = <T>(): Deferred<T> => {
+  let resolve!: (value: T) => void
+  let reject!: (error: unknown) => void
+  const promise = new Promise<T>((resolveInner, rejectInner) => { resolve = resolveInner; reject = rejectInner })
+  return { promise, resolve, reject }
+}
+const tick = (): Promise<void> => new Promise(resolve => setImmediate(resolve))
+
+const oldAgent = { ctx: { tag: 'old' }, session: { events: [], append: () => { throw new Error('old fact should not be appended') } } }
+const newFacts: unknown[] = []
+const newAgent = { ctx: { tag: 'new' }, session: { events: [], append: (type: string, data: unknown) => newFacts.push([type, data]) } }
+let agent = oldAgent
+let bindingGeneration = 1
+let ownerActive = true
+const binding = {
+  capture: () => ({ agent, generation: bindingGeneration }),
+  isCurrent: (capture: { agent: unknown; generation: number }) => ownerActive && capture.agent === agent && capture.generation === bindingGeneration,
+}
+const selection: { current?: unknown; assembled?: unknown } = {}
+const notices: string[] = []
+const state = {
+  provider: 'p', model: 'old', reasoningEffort: undefined as string | undefined,
+  effortLevels: undefined as string[] | undefined, agentPreset: undefined as string | undefined,
+  contextWindow: undefined as number | undefined,
+  working: false, emit: () => undefined, notify: (text: string) => { notices.push(text) },
+}
+/** Route-metadata answer shape as the widened llm runtime sees it: a
+ * catalog row may declare `reasoning: true` with no tier list at all. */
+type RouteInfo = { context?: { contextWindow: number }; reasoning?: boolean | { efforts?: { id: string; name: string }[]; defaultEffort?: string } }
+const routeLoads = new Map<string, Deferred<RouteInfo>>()
+const infoFor = (provider: string, model: string) => {
+  const gate = deferred<RouteInfo>()
+  routeLoads.set(`${provider}/${model}`, gate)
+  return gate.promise
+}
+let recomposeGate = deferred<{ id: string; trust: 'system' | 'user' }>()
+const presets = {
+  defaultId: 'base',
+  list: async () => [],
+  resolve: async (id: string) => ({ id, trust: 'system' as const }),
+  recompose: (_ctx: unknown, _id: string) => recomposeGate.promise,
+}
+const ctx = {
+  get: (name: string) => name === 'llm'
+    ? { resolveModelInfo: infoFor, listProviders: () => [], listModels: async () => [] }
+    : name === 'agentPresets' ? presets : undefined,
+}
+const actions = createModelActions(ctx as never, state as never, {
+  owner: { current: () => ownerActive }, binding: binding as never, selection: selection as never,
+  initialEffort: 'high', agent: () => agent as never, notify: state.notify as never,
+  checkContextWarning: () => undefined,
+})
+
+// Passive restoration still resolves route metadata, without selecting the
+// global preference or writing the persisted choice back over the session.
+state.reasoningEffort = 'low'
+selection.current = { provider: 'p', model: 'old', reasoningEffort: 'low' }
+const restoredEffort = actions.applyPreferredEffort(true)
+await tick()
+routeLoads.get('p/old')!.resolve({ reasoning: { efforts: [{ id: 'low', name: 'Low' }, { id: 'high', name: 'High' }] } })
+await restoredEffort
+assert.equal(state.reasoningEffort, 'low')
+assert.deepEqual(selection.current, { provider: 'p', model: 'old', reasoningEffort: 'low' })
+assert.deepEqual(state.effortLevels, ['low', 'high'], 'restoration still refreshes route tiers')
+
+// A different session can use the same route. Binding generation, not only
+// provider/model equality, must fence the old default lookup.
+const staleBindingDefault = actions.applyPreferredEffort()
+await tick()
+bindingGeneration += 1
+state.effortLevels = ['replacement']
+routeLoads.get('p/old')!.resolve({ reasoning: { efforts: [{ id: 'high', name: 'High' }] } })
+await staleBindingDefault
+assert.deepEqual(state.effortLevels, ['replacement'])
+assert.deepEqual(selection.current, { provider: 'p', model: 'old', reasoningEffort: 'low' })
+
+// Old preferred-effort metadata resolves after a new route has won. The old
+// completion must not replace the new route's tiers or request selection.
+const oldPreferred = actions.applyPreferredEffort()
+await tick()
+state.provider = 'p'
+state.model = 'new'
+actions.refreshEffortLevels()
+await tick()
+routeLoads.get('p/new')!.resolve({ reasoning: { efforts: [{ id: 'low', name: 'Low' }] } })
+await tick()
+assert.deepEqual(state.effortLevels, ['low'])
+selection.current = { provider: 'p', model: 'new', reasoningEffort: 'low' }
+routeLoads.get('p/old')!.resolve({ reasoning: { efforts: [{ id: 'high', name: 'High' }] } })
+await oldPreferred
+assert.deepEqual(state.effortLevels, ['low'], 'old metadata cannot overwrite replacement tiers')
+assert.deepEqual(selection.current, { provider: 'p', model: 'new', reasoningEffort: 'low' }, 'old metadata cannot overwrite replacement selection')
+
+// The slider path has the same fence: a deferred validation cannot persist or
+// select a tier after its captured route has been superseded.
+const staleSet = actions.setEffort('low')
+await tick()
+state.model = 'newer'
+routeLoads.get('p/new')!.resolve({ reasoning: { efforts: [{ id: 'low', name: 'Low' }] } })
+assert.equal(await staleSet, false)
+assert.deepEqual(selection.current, { provider: 'p', model: 'new', reasoningEffort: 'low' }, 'stale slider validation cannot write selection')
+
+// Preset recompose must keep the original agent/session and publish neither a
+// fact nor projection change when that binding is replaced while awaiting.
+state.model = 'new'
+const stalePreset = actions.switchPreset('review')
+await tick()
+agent = newAgent
+bindingGeneration += 1
+recomposeGate.resolve({ id: 'review', trust: 'system' })
+assert.equal(await stalePreset, false)
+assert.deepEqual(newFacts, [], 'stale recompose cannot append a fact to the replacement session')
+assert.equal(state.agentPreset, undefined, 'stale recompose cannot update replacement projection')
+
+// Owner revocation is independently terminal: a still-current binding cannot
+// let a late preferred-effort read alter its request selection after teardown.
+ownerActive = true
+state.provider = 'p'
+state.model = 'owner-revoked'
+const revokedPreferred = actions.applyPreferredEffort()
+await tick()
+ownerActive = false
+routeLoads.get('p/owner-revoked')!.resolve({ reasoning: { efforts: [{ id: 'high', name: 'High' }] } })
+await revokedPreferred
+assert.deepEqual(selection.current, { provider: 'p', model: 'new', reasoningEffort: 'low' }, 'owner-revoked preferred effort cannot write selection')
+assert.deepEqual(state.effortLevels, ['low'], 'owner-revoked preferred effort cannot replace visible tiers')
+
+// Recompose is also forbidden after owner revoke, even though its original
+// agent/session remain available. It must not append a durable fact or update
+// the preferred preset.
+ownerActive = true
+state.model = 'new'
+recomposeGate = deferred<{ id: string; trust: 'system' | 'user' }>()
+const revokedPreset = actions.switchPreset('owner-revoked')
+await tick()
+ownerActive = false
+recomposeGate.resolve({ id: 'owner-revoked', trust: 'system' })
+assert.equal(await revokedPreset, false)
+assert.deepEqual(newFacts, [], 'owner-revoked recompose cannot append a durable fact')
+assert.equal(state.agentPreset, undefined, 'owner-revoked recompose cannot update preferred projection')
+ownerActive = true
+
+// Workspace composition keeps cwd private until its guarded new-session seam
+// adopts it. A stale false/rejection therefore cannot roll back B after B wins.
+const workspaceState = {
+  cwd: '/original', displayCwd: '/original', working: false, emit: () => undefined,
+}
+const workspaceCalls: Deferred<boolean>[] = []
+const workspace = createWorkspaceActions(workspaceState as never, {
+  owner: { assertActive: () => undefined },
+  service: { list: async () => [], resolve: async () => undefined, commands: () => [], runCommand: async () => undefined, rename: async () => { throw new Error('unused') } } as never,
+  newSession: target => {
+    const gate = deferred<boolean>()
+    workspaceCalls.push(gate)
+    gate.promise.then(ok => {
+      // This is the only permitted publication point: it stands in for the
+      // successful adoption tail in newSessionWithTarget.
+      if (ok) {
+        workspaceState.cwd = target!.cwd
+        workspaceState.displayCwd = target!.displayCwd!
+      }
+    }).catch(() => undefined)
+    return gate.promise
+  },
+  refreshGitBranch: () => undefined, notify: () => undefined,
+})
+const workspaceA = workspace.switchWorkspace({ kind: 'remote', cwd: '/A', uri: 'a:', label: 'A' } as never)
+const workspaceB = workspace.switchWorkspace({ kind: 'remote', cwd: '/B', uri: 'b:', label: 'B' } as never)
+assert.equal(workspaceState.cwd, '/original', 'workspace target is not speculatively shared')
+workspaceCalls[1]!.resolve(true)
+assert.equal(await workspaceB, true)
+workspaceCalls[0]!.resolve(false)
+assert.equal(await workspaceA, false)
+assert.equal(workspaceState.cwd, '/B', 'late losing workspace cannot roll back later successful adoption')
+const rejected = workspace.switchWorkspace({ kind: 'remote', cwd: '/reject', uri: 'reject:', label: 'reject' } as never)
+workspaceCalls[2]!.reject(new Error('create failed'))
+assert.equal(await rejected, false)
+assert.equal(workspaceState.cwd, '/B', 'rejected workspace creation cannot publish or roll back cwd')
+
+// ── Effort-tier fallback ─────────────────────────────────────────────────
+// A catalog row that declares reasoning support WITHOUT a tier list (pi-ai
+// 0.87.x zai rows for glm-5.3* ship only `reasoning: true`) must offer the
+// standard ladder — the kernel accepts the standard ids and stays the
+// set-time authority. An EXPLICIT list, including an explicit empty one, is
+// respected verbatim; no reasoning declaration offers nothing.
+{
+  ownerActive = true
+  state.model = 'ladder-true'
+  actions.refreshEffortLevels()
+  await tick()
+  routeLoads.get('p/ladder-true')!.resolve({ reasoning: true })
+  await tick()
+  assert.deepEqual(state.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max'],
+    'reasoning:true with no tier list falls back to the standard ladder')
+  const ladderSet = actions.setEffort('xhigh')
+  await tick()
+  routeLoads.get('p/ladder-true')!.resolve({ reasoning: true })
+  assert.equal(await ladderSet, true, 'a fallback ladder tier switches and reaches the wire')
+  assert.deepEqual(selection.current, { provider: 'p', model: 'ladder-true', reasoningEffort: 'xhigh' },
+    'the fallback tier install writes the request selection')
+
+  state.model = 'ladder-object'
+  actions.refreshEffortLevels()
+  await tick()
+  routeLoads.get('p/ladder-object')!.resolve({ reasoning: {} })
+  await tick()
+  assert.deepEqual(state.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max'],
+    'a reasoning object without an efforts key falls back to the standard ladder')
+
+  state.model = 'ladder-listed'
+  actions.refreshEffortLevels()
+  await tick()
+  routeLoads.get('p/ladder-listed')!.resolve({ reasoning: { efforts: [{ id: 'low', name: 'Low' }] } })
+  await tick()
+  assert.deepEqual(state.effortLevels, ['low'], 'a declared tier list wins over the fallback ladder')
+
+  state.model = 'ladder-empty'
+  actions.refreshEffortLevels()
+  await tick()
+  routeLoads.get('p/ladder-empty')!.resolve({ reasoning: { efforts: [] } })
+  await tick()
+  assert.deepEqual(state.effortLevels, [], 'an explicit empty efforts list is respected, not replaced by the ladder')
+
+  state.model = 'ladder-none'
+  actions.refreshEffortLevels()
+  await tick()
+  routeLoads.get('p/ladder-none')!.resolve({})
+  await tick()
+  assert.deepEqual(state.effortLevels, [], 'no reasoning declaration offers no tiers')
+}
+
+// Candidate reads are quiet and do not supersede an in-flight live preference.
+{
+  ownerActive = true
+  state.model = 'preview-live'
+  state.contextWindow = 64000
+  state.effortLevels = ['low']
+  const livePreference = actions.applyPreferredEffort()
+  const before = { effort: state.reasoningEffort, selection: selection.current, notices: notices.length }
+  const preview = actions.listEfforts({ provider: 'q', model: 'preview-candidate' })
+  await tick()
+  routeLoads.get('q/preview-candidate')!.resolve({ context: { contextWindow: 999999 }, reasoning: { efforts: [{ id: 'max', name: 'Max' }], defaultEffort: 'max' } })
+  assert.deepEqual(await preview, { efforts: [{ id: 'max', name: 'Max' }], defaultEffort: 'max' })
+  assert.equal(state.contextWindow, 64000, 'candidate capacity never overwrites the live route')
+  assert.deepEqual(state.effortLevels, ['low'], 'candidate tiers never overwrite live completions')
+  assert.equal(state.reasoningEffort, before.effort)
+  assert.equal(selection.current, before.selection)
+  assert.equal(notices.length, before.notices, 'browsing a single-tier model emits no warning')
+  routeLoads.get('p/preview-live')!.resolve({ reasoning: { efforts: [{ id: 'xhigh', name: 'Extra high' }] } })
+  await livePreference
+  assert.deepEqual(selection.current, { provider: 'p', model: 'preview-live', reasoningEffort: 'xhigh' }, 'preview does not invalidate the live effort operation')
+
+  const stale = actions.listEfforts({ provider: 'q', model: 'preview-stale' })
+  await tick()
+  bindingGeneration += 1
+  routeLoads.get('q/preview-stale')!.resolve({ reasoning: true })
+  assert.deepEqual(await stale, { efforts: [], defaultEffort: undefined }, 'preview cannot cross a binding replacement')
+}
+
+console.log('verify-model-lifecycle-fences: OK')

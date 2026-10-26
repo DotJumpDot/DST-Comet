@@ -1,0 +1,1016 @@
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { basename } from 'node:path'
+import { Box, Text, useInput, useTerminalSize } from '../ui.js'
+import { t } from '../i18n.js'
+import type { ContextMenuEvent } from '../ink/events/context-menu-event.js'
+import type { ClickEvent } from '../ink/events/click-event.js'
+import type { WheelEvent } from '../ink/events/wheel-event.js'
+import { Divider } from '../components/design-system/Divider.js'
+import { HintLine } from '../components/design-system/HintLine.js'
+import { SearchBox } from '../components/SearchBox.js'
+import { PageInsetContext } from '../components/PageMargin.js'
+import { HomeWorkspaceRow } from '../components/workspaces/HomeWorkspaceRow.js'
+import { SessionListRow } from '../components/sessions/SessionListRow.js'
+import { SpinnerGlyph } from '../components/Spinner/SpinnerGlyph.js'
+import { ApprovalPanel } from '../components/approvals/ApprovalPanel.js'
+import type { PermissionPanelDecision, PermissionPanelOutcome, PermissionPanelSnapshot } from '../channel/permissions.js'
+import { useTerminalFocus } from '../ink/hooks/use-terminal-focus.js'
+import { useDeclaredCursor, useNativeCursor } from '../ink/hooks/use-declared-cursor.js'
+import { isPlainReturn, isMod } from '../utils/modifiers.js'
+import { truncateWidth, wrapPathWidth } from '../sessions/format.js'
+import { clearTooltip, useTooltip } from '../components/Tooltip.js'
+import { normalizeWorkspaceCwd } from '../sessions/view.js'
+import { readSessionPins, setSessionPinned } from '../sessionPins.js'
+import { readSessionOwners, type SessionMountOwner } from '../sessionMounts.js'
+import type { SessionSummary } from '../dsh-adapter/sessions/index.js'
+import type { TuiWorkspaceEntry, TuiWorkspaceTarget } from '../workspaces.js'
+import type { ChannelUi as Channel } from '../adapter/channel/ui-policy.js'
+import type { ResumeResult } from '../adapter/ports/channel-view.js'
+import { useSessionSupervisor } from './sessionSupervisor/useSessionSupervisor.js'
+import { DSH_TAB, useForeignSessions } from './sessionSupervisor/useForeignSessions.js'
+import { ForeignSessionPanes } from './sessionSupervisor/ForeignSessionPanes.js'
+import { SourceTabs, layoutSourceTabs, sourceTabsWidth, type SourceTab } from '../components/sessions/SourceTabs.js'
+import { stringWidth } from '../ink/stringWidth.js'
+import { RAIL_CHROME_ROWS, WORKSPACE_ROW_LINES, RAIL_MIN_TOTAL_COLUMNS, RAIL_WIDTH_MIN, RAIL_WIDTH_MAX, SESSION_ROW_LINES, SESSION_PANE_CHROME_ROWS, MENU_WIDTH, MENU_LABEL_KEYS, menuActionsFor, SupervisorLiveState, RailEntry, UNREGISTERED_RAIL_ID, message, samePath, sessionMatchesQuery } from './sessionSupervisor/model.js'
+export { sessionMatchesQuery }
+
+/**
+ * The unified session screen — `/resume`, `/agentview`, `/home` and the 🏠
+ * button all land here.
+ *
+ * Those were three screens over one domain, which is why they kept needing
+ * patches to agree with each other. This is the single surface: the workspace
+ * rail on the left (the durable ledger a person manages — add, rename,
+ * remove), the sessions of the selected workspace on the right, and every
+ * session's LIVE state on its own row.
+ *
+ * The runtime it presents is a single model, and the screen is where that
+ * model becomes visible:
+ *
+ * - This terminal hosts many sessions at once. A row that is `working` keeps
+ *   working when you leave it — switching changes what you are looking at, it
+ *   does not stop anything. The parked rows stay in the list with a live
+ *   glyph, so "where did my other session go" has an answer on screen.
+ * - A session held by another TUI terminal is shown as OCCUPIED (red, with the
+ *   holder's pid) and cannot be entered. Two processes driving one
+ *   append-only session log would interleave its events, so the screen refuses
+ *   rather than races; the entry becomes available on its own once that
+ *   process exits, because occupancy is proven by liveness rather than by a
+ *   flag someone has to remember to clear.
+ *
+ * @param props - Channel, home directory, the opening/新 actions, and the live
+ *   state + occupancy lookups the screen renders from.
+ * @returns The screen, or null while the host has no channel to read.
+ */
+export function SessionSupervisor({
+  channel,
+  home,
+  onClose,
+  onOpenSession,
+  onNewSession,
+  onStopSession,
+  approval,
+  onApprove,
+  liveStateOf,
+}: {
+  channel: Channel
+  /** Home directory, for collapsing paths to `~`. */
+  home: string
+  /** Leave the screen and show the conversation. */
+  onClose(): void
+  /** Mount a persisted session (the channel's unified resume path). */
+  onOpenSession(sessionId: string): Promise<ResumeResult>
+  /** Start a fresh session in the workspace at `path`. */
+  onNewSession(target: TuiWorkspaceTarget): Promise<boolean>
+  /** Stop a background session of this terminal; false when it is not ours. */
+  onStopSession(sessionId: string): Promise<boolean>
+  /**
+   * The parked approval ask (any session's), so a background session's
+   * permission prompt is answerable without leaving this screen — the one
+   * thing a parked session cannot wait indefinitely for.
+   */
+  approval: PermissionPanelSnapshot | null
+  onApprove(outcome: PermissionPanelOutcome, decision: PermissionPanelDecision): void
+  /**
+   * This terminal's live state for a session, or undefined when it has none.
+   * Read from the channel's agent-view projection so the list agrees with the
+   * overview's own rows by construction.
+   */
+  liveStateOf(sessionId: string): SupervisorLiveState | undefined
+}): React.ReactNode {
+  const { columns, rows } = useTerminalSize()
+  const inset = React.useContext(PageInsetContext)
+  const isTerminalFocused = useTerminalFocus()
+
+  const {
+    dshBackend,
+    archiveSessions,
+    sessionRename,
+    setSessionRename,
+    confirmDelete,
+    setConfirmDelete,
+    renameSession,
+    deleteSession,
+    entries,
+    sessions,
+    loading,
+    refreshing,
+    notice,
+    setNotice,
+    query,
+    setQuery,
+    holderOf,
+    listedSessions,
+    railEntries,
+    countOf,
+    railFocus,
+    setRailFocus,
+    setFocusSessionId,
+    activePane,
+    pins,
+    menu,
+    setMenu,
+    rename,
+    setRename,
+    confirmRemove,
+    setConfirmRemove,
+    railRef,
+    menuRef,
+    queryRef,
+    now,
+    reload,
+    selected,
+    visibleSessions,
+    sessionIndex,
+    cardFocused,
+    sessionAt,
+    activateList,
+    activateRail,
+    railWidth,
+    railVisible,
+    sessionWidth,
+    railEntryCapacity,
+    sessionListHeight,
+    noticeRows,
+    persistPin,
+    selectEntry,
+    openSession,
+    newSessionIn,
+    renameEntry,
+    removeEntry,
+    stopSession,
+    closeMenu,
+    activateMenu,
+    moveRail,
+    moveSession,
+    focusedSession,
+  } = useSessionSupervisor({ channel, home, onOpenSession, onNewSession, onStopSession, liveStateOf, columns, rows })
+  const menuEntry = menu === undefined ? undefined : railEntries.find(entry => samePath(entry.path, menu.path))
+  const menuActions = menuEntry === undefined ? [] : menuActionsFor(menuEntry)
+
+  /**
+   * The source tab: this screen's own sessions ({@link DSH_TAB}) or another
+   * coding agent's, by agent id. Every open starts on DSH — the screen is
+   * where you manage your sessions first, and a foreign tab is a place you
+   * visit.
+   */
+  const [tab, setTab] = useState<string>(DSH_TAB)
+  /** The `+N` dropdown of folded tabs, anchored where it was clicked. */
+  const [tabMenu, setTabMenu] = useState<{ col: number; row: number; item: number } | undefined>(undefined)
+  // Like ModelPicker, the native caret follows the region last touched.
+  // The live filter keeps the rail/list's existing navigation and Enter target.
+  const [filterFocused, setFilterFocused] = useState(false)
+  const cursorActive = approval === null && menu === undefined && tabMenu === undefined
+    && rename === undefined && confirmRemove === undefined && sessionRename === undefined && confirmDelete === undefined
+  const searchCursor = filterFocused || (!railVisible && activePane === 'rail')
+  const nativeCursor = useNativeCursor()
+  const newSessionCursorRef = useDeclaredCursor({
+    line: 0, column: 0, active: tab === DSH_TAB && cursorActive && !searchCursor && cardFocused,
+    visible: nativeCursor, hideOnIdle: true,
+  })
+  const focusRail = (): void => {
+    setFilterFocused(false)
+    activateRail()
+  }
+  const focusList = (): void => {
+    setFilterFocused(false)
+    activateList()
+  }
+  const tabMenuRef = useRef(tabMenu)
+  tabMenuRef.current = tabMenu
+  /** The session-rename draft as the keyboard sees it (see the input handler). */
+  const sessionRenameRef = useRef(sessionRename)
+  sessionRenameRef.current = sessionRename
+  const foreign = useForeignSessions({ channel, tab, registry: entries, query, setNotice, onOpenSession })
+
+  /**
+   * Only sources with data get a tab, after DSH, in a fixed order: ranking
+   * them by recency would mean stat-ing every conversation of every source
+   * each time this screen opens.
+   */
+  const tabs = useMemo<readonly SourceTab[]>(() => {
+    // Another backend's screen lists that backend's sessions: its one tab
+    // names it (foreign imports are a DSH feature and never probed there).
+    // oxlint-disable-next-line typescript/no-unnecessary-condition -- runtime guard: headless hosts pass partial channels
+    if (!dshBackend) return [{ id: DSH_TAB, label: channel.backendCapabilities?.backendLabel ?? DSH_TAB }]
+    if (foreign.sources.length === 0) return []
+    return [{ id: DSH_TAB, label: 'DSH' }, ...foreign.sources.map(source => ({ id: source.agentId, label: source.label }))]
+  }, [foreign.sources, dshBackend, channel.backendCapabilities])
+  const activeSource = foreign.sources.find(source => source.agentId === tab)
+
+  // A source that vanished on refresh takes its tab with it; land on DSH
+  // rather than on a tab the strip no longer draws.
+  React.useEffect(() => {
+    if (tab !== DSH_TAB && activeSource === undefined) setTab(DSH_TAB)
+  }, [tab, activeSource])
+
+  const closeTabMenu = useCallback((): void => {
+    tabMenuRef.current = undefined
+    setTabMenu(undefined)
+  }, [])
+
+  /** Switch source. The query and notice belong to the tab they were made on. */
+  const switchTab = useCallback((id: string): void => {
+    closeMenu()
+    closeTabMenu()
+    setQuery('')
+    setFilterFocused(false)
+    setNotice(undefined)
+    setTab(id)
+  }, [closeMenu, closeTabMenu, setQuery, setNotice])
+
+  const cycleTab = useCallback((by: 1 | -1): void => {
+    if (tabs.length < 2) return
+    const index = Math.max(0, tabs.findIndex(candidate => candidate.id === tab))
+    switchTab(tabs[(index + by + tabs.length) % tabs.length]!.id)
+  }, [tabs, tab, switchTab])
+
+  useInput((input, key) => {
+    // Modal layers own the keyboard, in the same order they render.
+    // The draft is read through a ref: keystrokes that arrive in one batch
+    // (typing, then Enter) must commit everything typed, not the last render.
+    const renaming = sessionRenameRef.current
+    if (renaming !== undefined) {
+      const update = (next: { id: string; draft: string } | undefined): void => {
+        sessionRenameRef.current = next
+        setSessionRename(next)
+      }
+      if (key.escape) {
+        update(undefined)
+        return
+      }
+      if (isPlainReturn(key)) {
+        update(undefined)
+        renameSession(renaming.id, renaming.draft)
+        return
+      }
+      if (key.backspace || key.delete) {
+        update({ ...renaming, draft: renaming.draft.slice(0, -1) })
+        return
+      }
+      if (!isMod(key) && !key.meta && input && !key.return) {
+        const typed = input.replace(/[\r\n]+/gu, '')
+        if (typed !== '') update({ ...renaming, draft: renaming.draft + typed })
+      }
+      return
+    }
+    if (confirmDelete !== undefined) {
+      if (isPlainReturn(key)) {
+        const target = listedSessions.find(candidate => candidate.id === confirmDelete)
+        setConfirmDelete(undefined)
+        if (target !== undefined) deleteSession(target)
+      } else if (key.escape) {
+        setConfirmDelete(undefined)
+      }
+      return
+    }
+    if (rename !== undefined) {
+      if (key.escape) {
+        setRename(undefined)
+        return
+      }
+      if (isPlainReturn(key)) {
+        const current = rename
+        setRename(undefined)
+        renameEntry(current.path, current.draft)
+        return
+      }
+      if (key.backspace || key.delete) {
+        setRename(current => (current === undefined ? current : { ...current, draft: current.draft.slice(0, -1) }))
+        return
+      }
+      if (!isMod(key) && !key.meta && input && !key.return) {
+        const typed = input.replace(/[\r\n]+/gu, '')
+        if (typed !== '') setRename(current => (current === undefined ? current : { ...current, draft: current.draft + typed }))
+      }
+      return
+    }
+    if (confirmRemove !== undefined) {
+      if (isPlainReturn(key)) {
+        const path = confirmRemove
+        setConfirmRemove(undefined)
+        removeEntry(path)
+      } else if (key.escape) {
+        setConfirmRemove(undefined)
+      }
+      return
+    }
+    if (menuRef.current !== undefined) {
+      const current = menuRef.current
+      const entry = railEntries.find(candidate => samePath(candidate.path, current.path))
+      if (entry === undefined) { closeMenu(); return }
+      const actionCount = menuActionsFor(entry).length
+      if (key.upArrow) {
+        const next = { ...current, item: (current.item + actionCount - 1) % actionCount }
+        menuRef.current = next
+        setMenu(next)
+      } else if (key.downArrow) {
+        const next = { ...current, item: (current.item + 1) % actionCount }
+        menuRef.current = next
+        setMenu(next)
+      } else if (isPlainReturn(key)) {
+        activateMenu(entry, current.item)
+      } else {
+        closeMenu()
+      }
+      return
+    }
+    if (tabMenuRef.current !== undefined) {
+      const current = tabMenuRef.current
+      const count = Math.max(1, tabLayout.hidden.length)
+      if (key.upArrow || key.downArrow) {
+        const next = { ...current, item: (current.item + (key.upArrow ? count - 1 : 1)) % count }
+        tabMenuRef.current = next
+        setTabMenu(next)
+      } else if (isPlainReturn(key)) {
+        const target = tabLayout.hidden[current.item]
+        if (target !== undefined) switchTab(target.id)
+        else closeTabMenu()
+      } else {
+        closeTabMenu()
+      }
+      return
+    }
+
+    if (key.escape) {
+      if (notice !== undefined) {
+        setNotice(undefined)
+        return
+      }
+      if (queryRef.current.length > 0) {
+        setFilterFocused(true)
+        setQuery('')
+        return
+      }
+      onClose()
+      return
+    }
+    if (key.tab) {
+      // Tab / Shift+Tab walk the source tabs. Shift+Tab used to open the
+      // focused workspace's menu, which Enter on the rail already does, so
+      // the route was given up to the tabs.
+      cycleTab(key.shift ? -1 : 1)
+      return
+    }
+    if (key.leftArrow || key.rightArrow || key.upArrow || key.downArrow || key.wheelUp || key.wheelDown || key.pageUp || key.pageDown) {
+      setFilterFocused(false)
+    }
+    if (tab !== DSH_TAB) {
+      foreignKey(input, key)
+      return
+    }
+    // ←/→ choose the column. There is exactly one `❯` on screen because exactly
+    // one column owns the keyboard, and this is what moves that ownership.
+    if (key.leftArrow) {
+      activateRail()
+      return
+    }
+    if (key.rightArrow) {
+      activateList()
+      return
+    }
+    if (key.upArrow || key.wheelUp) {
+      if (activePane === 'rail') moveRail(-1)
+      else moveSession(-1)
+      return
+    }
+    if (key.downArrow || key.wheelDown) {
+      if (activePane === 'rail') moveRail(1)
+      else moveSession(1)
+      return
+    }
+    if (key.pageUp || key.pageDown) {
+      if (activePane === 'list') moveSession(key.pageDown ? 1 : -1)
+      else moveRail(key.pageDown ? 1 : -1)
+      return
+    }
+    // Typing moves the native caret into the live filter; arrows and Enter
+    // still belong to the rail/list, so filtering adds no separate input mode.
+    if (key.backspace || key.delete) {
+      setFilterFocused(true)
+      setQuery(text => text.slice(0, -1))
+      return
+    }
+    if (isMod(key) && input === 'n') {
+      const entry = railEntries[railRef.current]
+      if (entry !== undefined) newSessionIn(entry)
+      return
+    }
+    if (isMod(key) && input === 'l') {
+      void reload()
+      return
+    }
+    if (isMod(key) && input === 'x') {
+      if (focusedSession !== undefined) stopSession(focusedSession)
+      return
+    }
+    // Another backend's stored sessions are renamed / deleted through its
+    // catalog (the DSH screen keeps its keys exactly as they were).
+    if (!dshBackend && isMod(key) && input === 'r') {
+      if (activePane === 'list' && focusedSession !== undefined) {
+        const next = { id: focusedSession.id, draft: focusedSession.title.text }
+        sessionRenameRef.current = next
+        setSessionRename(next)
+      }
+      return
+    }
+    if (!dshBackend && isMod(key) && input === 'd') {
+      if (activePane === 'list' && focusedSession !== undefined) setConfirmDelete(focusedSession.id)
+      return
+    }
+    if (isPlainReturn(key)) {
+      // Enter means "the thing the active column is showing": its action menu
+      // for a workspace, that session for the session list. Ctrl/Cmd+Enter keeps
+      // the old "start a session in this workspace" shortcut from either column.
+      // Row 0 of the list is the new-session card, so it starts a session
+      // instead of opening one.
+      if (activePane === 'list') {
+        if (sessionIndex === 0) {
+          if (selected !== undefined) newSessionIn(selected)
+          return
+        }
+        // `sessionIndex` is derived from the SAME focus fact the render draws
+        // `❯` from, so Enter can only ever open the row the user is looking at.
+        const session = sessionAt(sessionIndex)
+        if (session !== undefined) openSession(session)
+        return
+      }
+      const entry = railEntries[railRef.current]
+      if (entry === undefined) return
+      if (key.ctrl || key.meta) {
+        newSessionIn(entry)
+        return
+      }
+      const next = { path: entry.path, ...keyboardMenuAnchor, item: 0 }
+      menuRef.current = next
+      setMenu(next)
+      return
+    }
+    // Reached only when nothing above claimed the key: printable characters
+    // refine the filter. Control bytes are dropped so a terminal reporting an
+    // unknown key cannot type an invisible glyph into the query.
+    if (!isMod(key) && !key.meta && !key.super && input && !key.return) {
+      const typed = input.replace(/\p{Cc}/gu, '')
+      if (typed.length > 0) {
+        setFilterFocused(true)
+        setQuery(text => text + typed)
+      }
+    }
+  })
+
+  const workingCount = listedSessions.filter(
+    session => liveStateOf(session.id)?.status === 'working',
+  ).length
+
+  /**
+   * Keys on a source tab: the same pane model as DSH (←/→ pick the column,
+   * ↑/↓ move, typing filters), with what a foreign source cannot do left out —
+   * no workspace menu, no new session, no stop — and Ctrl+L rescanning the
+   * source instead of re-listing.
+   */
+  function foreignKey(input: string, key: Parameters<Parameters<typeof useInput>[0]>[1]): void {
+    if (key.leftArrow) {
+      foreign.activateRail()
+      return
+    }
+    if (key.rightArrow) {
+      foreign.activateList()
+      return
+    }
+    const by = key.upArrow || key.wheelUp || key.pageUp ? -1 : key.downArrow || key.wheelDown || key.pageDown ? 1 : 0
+    if (by !== 0) {
+      if (foreign.pane === 'rail') foreign.moveRail(by)
+      else foreign.moveList(by)
+      return
+    }
+    if (key.backspace || key.delete) {
+      setFilterFocused(true)
+      setQuery(text => text.slice(0, -1))
+      return
+    }
+    if (isMod(key) && input === 'l') {
+      foreign.rescan()
+      return
+    }
+    if (isMod(key)) return
+    if (isPlainReturn(key)) {
+      // The rail has no menu here, so Enter on it steps into the list.
+      if (foreign.pane === 'rail') foreign.activateList()
+      else if (foreign.focusedRow !== undefined) foreign.openRow(foreign.focusedRow)
+      return
+    }
+    if (!key.meta && !key.super && input && !key.return) {
+      const typed = input.replace(/\p{Cc}/gu, '')
+      if (typed.length > 0) {
+        setFilterFocused(true)
+        setQuery(text => text + typed)
+      }
+    }
+  }
+
+  // Header: title, subtitle, and the source strip on the right. Width runs
+  // out in a fixed order — the subtitle goes first, then trailing tabs fold
+  // into `+N`; the active tab never folds.
+  const titleText = ` ▣ ${t('supervisor-title')}`
+  const subtitleText = `  ${t('supervisor-subtitle')}`
+  /** One column between title and strip, one after the strip. */
+  const HEADER_GAPS = 2
+  const fullStrip = tabs.length === 0 ? 0 : sourceTabsWidth(tabs, 0, DSH_TAB)
+  const showSubtitle = tabs.length === 0
+    || stringWidth(titleText) + stringWidth(subtitleText) + HEADER_GAPS + fullStrip <= columns
+  const tabBudget = columns - stringWidth(titleText) - (showSubtitle ? stringWidth(subtitleText) : 0) - HEADER_GAPS
+  const tabLayout = layoutSourceTabs(tabs, tab, tabBudget)
+  const tabMenuWidth = Math.max(12, ...tabLayout.hidden.map(hidden => stringWidth(hidden.label) + 6))
+  const withTabHint = (text: string): string => (tabs.length < 2 ? text : `${text} · ${t('supervisor-hint-tabs')}`)
+
+  const listHint = dshBackend ? t('supervisor-hint-list') : t(archiveSessions ? 'supervisor-hint-list-archive' : 'supervisor-hint-list-backend')
+  const railHint = rename !== undefined
+    ? t('home-hint-rename')
+    : confirmRemove !== undefined
+      ? t('home-hint-confirm-remove')
+      : menu !== undefined
+        ? t('home-hint-menu')
+        : activePane === 'rail'
+          ? withTabHint(t('home-hint-list'))
+          : withTabHint(listHint)
+
+  /** Content-local anchor for a keyboard-opened menu (screen coords minus inset). */
+  const keyboardMenuAnchor = { col: inset.x + 2, row: inset.y + 3 }
+  const filtered = query.trim().length > 0
+
+  // Keep the selected directory in one place for DSH and external sources.
+  // Wrap instead of animating a marquee; unusually long paths remain in the tooltip.
+  const selectedPath = tab === DSH_TAB
+    ? selected?.path === UNREGISTERED_RAIL_ID ? undefined : selected?.path
+    : foreign.selected?.path || undefined
+  const pathWidth = Math.max(1, columns - 2)
+  const wrappedPath = selectedPath === undefined ? [] : wrapPathWidth(selectedPath, pathWidth)
+  const maxPathRows = Math.max(1, Math.min(4, Math.floor(rows / 4)))
+  const pathClipped = wrappedPath.length > maxPathRows
+  const pathLines = wrappedPath.slice(0, maxPathRows)
+  if (pathClipped) pathLines[pathLines.length - 1] = truncateWidth(`${pathLines[pathLines.length - 1]}…`, pathWidth)
+  const pathTooltip = useTooltip(() => pathClipped ? selectedPath ?? '' : '')
+  // A keyboard selection change leaves the pointer still, so close the previous path's tooltip.
+  useEffect(() => { clearTooltip() }, [selectedPath])
+  const pathRows = pathLines.length
+  const visibleRailCapacity = Math.max(1, railEntryCapacity - Math.ceil(pathRows / WORKSPACE_ROW_LINES))
+  const railWindowTopIndex = railWindowTop(railFocus, railEntries.length, visibleRailCapacity)
+  const visibleRailRows = railEntries.slice(railWindowTopIndex, railWindowTopIndex + visibleRailCapacity)
+
+  // The new-session card is row 0; reserve its space and the path bar before
+  // deriving the visible session window, so the focused row never gets clipped.
+  const capacity = Math.max(1, Math.floor((sessionListHeight - pathRows) / SESSION_ROW_LINES))
+  const sessionCapacity = Math.max(1, capacity - 1)
+  let sessionTop = Math.min(
+    Math.max(0, sessionIndex - 1 - sessionCapacity + 1),
+    Math.max(0, visibleSessions.length - sessionCapacity),
+  )
+  if (sessionIndex - 1 < sessionTop) sessionTop = Math.max(0, sessionIndex - 1)
+  const visibleSessionRows = visibleSessions.slice(sessionTop, sessionTop + sessionCapacity)
+
+  const liveCount = listedSessions.filter(session => liveStateOf(session.id)?.live === true).length
+
+  return (
+    <Box
+      flexDirection="column"
+      width={columns}
+      height={rows}
+      onClick={menu !== undefined ? closeMenu : tabMenu !== undefined ? closeTabMenu : undefined}
+    >
+      <Box height={1} flexShrink={0} overflow="hidden">
+        <Box flexGrow={1} flexShrink={1} overflow="hidden">
+          <Text color="remember" bold>{titleText}</Text>
+          {showSubtitle && <Text dimColor>{subtitleText}</Text>}
+        </Box>
+        {tabs.length > 0 && (
+          <Box flexShrink={0} marginRight={1}>
+            <SourceTabs
+              layout={tabLayout}
+              active={tab}
+              leadId={DSH_TAB}
+              onSelect={switchTab}
+              onOverflow={(event): void => {
+                closeMenu()
+                const next = { col: event.col, row: event.row, item: 0 }
+                tabMenuRef.current = next
+                setTabMenu(next)
+              }}
+            />
+          </Box>
+        )}
+      </Box>
+      <Divider bleed />
+      {pathRows > 0 && (
+        <Box flexDirection="column" flexShrink={0} paddingX={1} {...pathTooltip}>
+          {pathLines.map((line, index) => <Text key={index} dimColor>{line}</Text>)}
+        </Box>
+      )}
+      {tab !== DSH_TAB && (
+        <ForeignSessionPanes
+          model={foreign}
+          sourceLabel={activeSource?.label ?? tab}
+          home={home}
+          now={now}
+          query={query}
+          notice={notice}
+          railVisible={railVisible}
+          railWidth={railWidth}
+          railEntryCapacity={visibleRailCapacity}
+          sessionWidth={sessionWidth}
+          rows={rows - pathRows}
+          isTerminalFocused={isTerminalFocused}
+          filterFocused={filterFocused}
+          cursorActive={cursorActive}
+          onFilterFocus={setFilterFocused}
+        />
+      )}
+      {tab === DSH_TAB && (
+      <Box flexDirection="row" flexGrow={1} flexShrink={1} overflow="hidden">
+        {railVisible && (
+          <ink-box
+            style={{ flexDirection: 'column', width: railWidth, height: '100%', flexShrink: 0, overflow: 'hidden' }}
+            onClick={focusRail}
+            onMouseEnter={focusRail}
+            onWheel={(event: WheelEvent): void => {
+              setFilterFocused(false)
+              moveRail(event.deltaY >= 0 ? 1 : -1)
+            }}
+          >
+            <Box height={1} flexShrink={0} overflow="hidden" paddingX={1}>
+              <Text dimColor>{truncateWidth(
+                railEntries.length === entries.length
+                  ? t('home-section-workspaces', { n: entries.length })
+                  : t('supervisor-workspace-groups', { registered: entries.length, history: railEntries.length - entries.length }),
+                railWidth - 2,
+              )}</Text>
+            </Box>
+            {!loading && railEntries.length === 0 && (
+              <Box paddingX={1}>
+                <Text dimColor italic wrap="truncate-end">{truncateWidth(t('home-no-workspaces'), railWidth - 2)}</Text>
+              </Box>
+            )}
+            {visibleRailRows.map((entry) => {
+              const absolute = railEntries.indexOf(entry)
+              return (
+                <HomeWorkspaceRow
+                  key={entry.id}
+                  title={entry.title}
+                  path={entry.path}
+                  home={home}
+                  sessionCount={countOf(entry)}
+                  historyOnly={entry.from === 'unregistered'}
+                  present={entry.present}
+                  selected={selected !== undefined && selected.id === entry.id}
+                  focused={activePane === 'rail' && railFocus === absolute}
+                  declareCursor={cursorActive && !searchCursor}
+                  width={railWidth}
+                  onSelect={(event): void => {
+                    event.stopImmediatePropagation()
+                    setFilterFocused(false)
+                    railRef.current = absolute
+                    setRailFocus(absolute)
+                    selectEntry(entry)
+                  }}
+                  onMenu={(event: ContextMenuEvent): void => {
+                    event.stopImmediatePropagation()
+                    railRef.current = absolute
+                    setRailFocus(absolute)
+                    const next = { path: entry.path, col: event.col, row: event.row, item: 0 }
+                    menuRef.current = next
+                    setMenu(next)
+                  }}
+                />
+              )
+            })}
+            <Box flexGrow={1} />
+            <Box flexShrink={0} paddingX={1}>
+              <Text dimColor italic><HintLine text={railHint} /></Text>
+            </Box>
+          </ink-box>
+        )}
+
+        {railVisible && (
+          <Box width={1} flexShrink={0} flexDirection="column">
+            <Text dimColor>{'│'}</Text>
+          </Box>
+        )}
+
+        <Box
+          flexDirection="column"
+          width={sessionWidth}
+          height="100%"
+          flexShrink={0}
+          overflow="hidden"
+          onClick={focusList}
+          onMouseEnter={focusList}
+        >
+          <Box height={1} flexShrink={0} overflow="hidden">
+            <Box flexShrink={1} overflow="hidden">
+              <Text color="remember" bold>{truncateWidth(` ${t('home-sessions-title', { name: selected?.title ?? t('supervisor-title') })}`, Math.max(4, sessionWidth - 3))}</Text>
+              <Text dimColor>
+                {`  ${truncateWidth(
+                  (railVisible
+                    ? t('supervisor-counts', { working: workingCount, live: liveCount, total: visibleSessions.length })
+                    : String(visibleSessions.length)) + (refreshing ? ` · ${t('home-sessions-refreshing')}` : ''),
+                  Math.max(4, sessionWidth - 3),
+                )}`}
+              </Text>
+            </Box>
+          </Box>
+          <Box height={1} flexShrink={0} paddingX={1} onClick={event => {
+            event.stopImmediatePropagation()
+            activateList()
+            setFilterFocused(true)
+          }} onMouseEnter={event => {
+            event.stopImmediatePropagation()
+            if (activePane !== 'list') activateList()
+            setFilterFocused(true)
+          }}>
+            <SearchBox
+              query={query}
+              isFocused={activePane === 'list' || searchCursor}
+              declareCursor={cursorActive && searchCursor}
+              isTerminalFocused={isTerminalFocused}
+              placeholder={truncateWidth(t('supervisor-filter-placeholder'), Math.max(8, sessionWidth - 6))}
+              prefix="/"
+              borderless
+              width={Math.max(8, sessionWidth - 2)}
+            />
+          </Box>
+          {/* Start a session in the workspace this pane is showing.
+              It lives HERE — first thing under the filter, one session card
+              tall — rather than in the title row: as a right-aligned header
+              control it was too easy to miss, and this is the shape every other
+              row in the pane has. It is also the only affordance that works when
+              the pane is EMPTY, which is exactly when the list has nothing to
+              offer. It sits above the scroll window on purpose, so it never
+              scrolls away from the user who needs it. */}
+          <Box
+            flexDirection="column"
+            flexShrink={0}
+            onMouseEnter={() => setFilterFocused(false)}
+            onClick={(event: ClickEvent): void => {
+              event.stopImmediatePropagation()
+              if (selected !== undefined) newSessionIn(selected)
+            }}
+          >
+            {/* Row 0 of the session list, so it carries the cursor like any
+                other card — and only while the cursor is actually on it. */}
+            <Box ref={newSessionCursorRef} height={1} flexShrink={0} overflow="hidden">
+              <Text color={cardFocused ? 'success' : 'subtle'}>{cardFocused ? '❯ ' : '  '}</Text>
+              <Text color={cardFocused ? 'success' : undefined} bold={cardFocused}>{t('supervisor-new-session')}</Text>
+            </Box>
+            <Box height={1} flexShrink={0} overflow="hidden">
+              <Text dimColor>{`  ${truncateWidth(t('supervisor-new-session-hint', { name: selected?.title ?? t('supervisor-title') }), Math.max(8, sessionWidth - 3))}`}</Text>
+            </Box>
+          </Box>
+          <ink-box
+            style={{ flexDirection: 'column', flexGrow: 1, flexShrink: 1, overflow: 'hidden' }}
+            onMouseEnter={() => setFilterFocused(false)}
+            onWheel={(event: WheelEvent): void => {
+              setFilterFocused(false)
+              moveSession(event.deltaY >= 0 ? 1 : -1)
+            }}
+          >
+            {loading && <Text dimColor italic>{` ${truncateWidth(t('home-sessions-loading'), sessionWidth - 2)}`}</Text>}
+            {!loading && visibleSessions.length === 0 && (
+              <Text dimColor italic>
+                {` ${truncateWidth(filtered ? t('supervisor-no-matches') : t('home-no-sessions'), sessionWidth - 2)}`}
+              </Text>
+            )}
+            {visibleSessionRows.map((session, index) => {
+              const state = liveStateOf(session.id)
+              const holder = holderOf(session.id)
+              return (
+                <SessionListRow
+                  key={session.id}
+                  session={session}
+                  width={sessionWidth}
+                  depth={0}
+                  focused={activePane === 'list' && sessionTop + index + 1 === sessionIndex}
+                  declareCursor={cursorActive && !searchCursor}
+                  pinned={pins.has(session.id)}
+                  now={now}
+                  liveStatus={state?.live === true ? state.status : undefined}
+                  current={state?.current === true}
+                  occupiedPid={holder}
+                  onClick={(event): void => {
+                    event.stopImmediatePropagation()
+                    setFocusSessionId(session.id)
+                    openSession(session)
+                  }}
+                  onTogglePin={(): void => {
+                    setFilterFocused(false)
+                    setFocusSessionId(session.id)
+                    persistPin(session.id, !pins.has(session.id))
+                  }}
+                  onContextMenu={(event): void => {
+                    setFocusSessionId(session.id)
+                    const entry = selected
+                    if (entry === undefined) return
+                    const next = { path: entry.path, col: event.col, row: event.row, item: 0 }
+                    menuRef.current = next
+                    setMenu(next)
+                  }}
+                />
+              )
+            })}
+          </ink-box>
+          <Box flexShrink={0} flexDirection="column" height={noticeRows.length} overflow="hidden">
+            {noticeRows.map((line, index) => (
+              <Text key={index} color={notice?.tone === 'error' ? 'error' : 'success'}>{` ${line}`}</Text>
+            ))}
+          </Box>
+          <Box flexShrink={0}>
+            <Text dimColor italic>
+              <HintLine text={sessionRename !== undefined ? t('supervisor-hint-session-rename') : filtered ? t('supervisor-hint-filter') : withTabHint(listHint)} />
+            </Text>
+          </Box>
+        </Box>
+      </Box>
+      )}
+
+      {sessionRename !== undefined && (
+        <Box height={1} flexShrink={0}>
+          <SearchBox
+            query={sessionRename.draft}
+            isFocused
+            isTerminalFocused={isTerminalFocused}
+            placeholder={t('home-rename-placeholder')}
+            prefix="✎"
+            borderless
+            width="100%"
+          />
+        </Box>
+      )}
+      {confirmDelete !== undefined && (
+        <Box flexShrink={0} paddingX={1}>
+          <Text color="error">
+            {truncateWidth(` ${t(archiveSessions ? 'supervisor-archive-confirm' : 'supervisor-delete-confirm', { name: listedSessions.find(candidate => candidate.id === confirmDelete)?.title.text ?? confirmDelete })}`, columns - 3)}
+          </Text>
+        </Box>
+      )}
+      {rename !== undefined && (
+        <Box height={1} flexShrink={0}>
+          <SearchBox
+            query={rename.draft}
+            isFocused
+            isTerminalFocused={isTerminalFocused}
+            placeholder={t('home-rename-placeholder')}
+            prefix="✎"
+            borderless
+            width="100%"
+          />
+        </Box>
+      )}
+      {confirmRemove !== undefined && (
+        <Box flexShrink={0} paddingX={1} onClick={(): void => {
+          const path = confirmRemove
+          setConfirmRemove(undefined)
+          removeEntry(path)
+        }}>
+          <Text color="error">
+            {truncateWidth(
+              ` ${t('home-remove-title', { name: railEntries.find(entry => samePath(entry.path, confirmRemove))?.title ?? confirmRemove })} · ${t('home-remove-detail')}`,
+              columns - 3,
+            )}
+          </Text>
+        </Box>
+      )}
+
+      {menu !== undefined && menuEntry !== undefined && (
+        <Box
+          position="absolute"
+          left={Math.max(0, Math.min(menu.col - inset.x + 1, Math.max(0, columns - MENU_WIDTH)))}
+          top={Math.max(0, Math.min(menu.row - inset.y + 1, Math.max(0, rows - (menuActions.length + 2))))}
+          width={MENU_WIDTH}
+          height={menuActions.length + 2}
+          flexDirection="column"
+          flexShrink={0}
+          borderStyle="round"
+          borderColor="permission"
+          backgroundColor="toolCardBackground"
+        >
+          {menuActions.map((action, index) => (
+            <Box
+              key={action}
+              height={1}
+              flexShrink={0}
+              backgroundColor={index === menu.item ? 'userMessageBackgroundHover' : undefined}
+              onMouseEnter={(): void => setMenu(current => (current === undefined ? current : { ...current, item: index }))}
+              onClick={(event): void => {
+                event.stopImmediatePropagation()
+                const entry = railEntries.find(candidate => samePath(candidate.path, menu.path))
+                if (entry !== undefined) activateMenu(entry, index)
+              }}
+            >
+              <Text color={action === 'remove' ? 'error' : undefined}>
+                {` ${index === menu.item ? '❯' : ' '} ${t(MENU_LABEL_KEYS[action])}`}
+              </Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {tabMenu !== undefined && tabLayout.hidden.length > 0 && (
+        <Box
+          position="absolute"
+          left={Math.max(0, Math.min(tabMenu.col - inset.x - tabMenuWidth + 2, Math.max(0, columns - tabMenuWidth)))}
+          top={Math.max(0, Math.min(tabMenu.row - inset.y + 1, Math.max(0, rows - tabLayout.hidden.length - 2)))}
+          width={tabMenuWidth}
+          height={tabLayout.hidden.length + 2}
+          flexDirection="column"
+          flexShrink={0}
+          borderStyle="round"
+          borderColor="permission"
+          backgroundColor="toolCardBackground"
+        >
+          {tabLayout.hidden.map((hidden, index) => (
+            <Box
+              key={hidden.id}
+              height={1}
+              flexShrink={0}
+              backgroundColor={index === tabMenu.item ? 'userMessageBackgroundHover' : undefined}
+              onMouseEnter={(): void => setTabMenu(current => (current === undefined ? current : { ...current, item: index }))}
+              onClick={(event): void => {
+                event.stopImmediatePropagation()
+                switchTab(hidden.id)
+              }}
+            >
+              <Text>{truncateWidth(` ${index === tabMenu.item ? '❯' : ' '} ${hidden.label}`, tabMenuWidth - 2)}</Text>
+            </Box>
+          ))}
+        </Box>
+      )}
+
+      {/*
+        A parked approval outranks everything on this screen: a background
+        session that is waiting for permission is stopped until it is answered,
+        and the user is looking at the list of sessions precisely when they
+        want to know which one that is. It renders below the panes rather than
+        over them so the row it belongs to stays visible while answering.
+      */}
+      {approval !== null && (
+        <Box flexShrink={0} flexDirection="column" position="absolute" bottom={1} left={0} width={columns}>
+          <ApprovalPanel
+            approval={approval}
+            background={approval.agentId !== channel.agentId}
+            onDecide={onApprove}
+          />
+        </Box>
+      )}
+
+    </Box>
+  )
+}
+
+/**
+ * Scroll anchor for the rail: the first entry index to show.
+ *
+ * A pure helper (exported for the headless regression) because the rail's
+ * window has to hold the focused row without re-shuffling under a stationary
+ * cursor — the same anchoring rule the session list uses.
+ *
+ * `focus` is a plain entry index: the rail's rows ARE the ledger, so the cursor
+ * and the selection are one position and the window math takes that position
+ * directly. It used to be offset by the `+` row that led the rail, which is
+ * gone — a workspace joins the ledger by being a terminal's launch directory.
+ *
+ * `capacity` is a count of ENTRIES, not of terminal rows. It used to be handed
+ * the row count, which is wrong for this list in a way that hides the cursor:
+ * each entry is {@link WORKSPACE_ROW_LINES} rows tall, so treating rows as
+ * entries made the window believe it could show twice as many workspaces as it
+ * can, and the focused entry was simply clipped away by `overflow="hidden"`
+ * while the user navigated it blind.
+ */
+export function railWindowTop(focus: number, entryCount: number, capacity: number): number {
+  const entries = Math.max(1, capacity)
+  if (focus < 0) return 0
+  let top = Math.max(0, focus - entries + 1)
+  if (focus < top) top = focus
+  if (focus >= top + entries) top = focus - entries + 1
+  return Math.min(top, Math.max(0, entryCount - entries))
+}
+
+/** Re-exported so a regression can drive the spinner without importing ink. */
+export { SpinnerGlyph }

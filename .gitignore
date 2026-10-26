@@ -1,0 +1,14 @@
+# Build outputs
+node_modules/
+lib/
+dist/
+*.tsbuildinfo
+
+# Vendored reference checkout — too large to track; scripts/setup-vendor.sh clones it.
+# It is pinned by commit in VENDORED.md and we do not modify it.
+vendor/deepseek-harness/
+
+# Local state
+*.log
+.DS_Store
+Thumbs.db

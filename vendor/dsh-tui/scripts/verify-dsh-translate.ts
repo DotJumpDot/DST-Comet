@@ -1,0 +1,329 @@
+/**
+ * DSH translator coverage: runs the DSH projection fixtures
+ * (scripts/fixtures/dsh/) through `createDshTranslator` (live per event,
+ * replay via `translateReplay`, plus the stream frames) and asserts that
+ * every DSH event family produces its Agent Domain event with the identity
+ * fields the shared projector relies on. The
+ * projected outcome itself is pinned by verify-projection-golden; this gate
+ * pins the vocabulary in between, so a translator change that happens to
+ * cancel out in the projection still fails here.
+ *
+ * Run: node --import tsx/esm scripts/verify-dsh-translate.ts
+ */
+import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import type { AgentEvent } from '../src/agent/events.js'
+import { prependHistoryRows, projectHistorySlice } from '../src/channel/history-restore.js'
+import { createDshTranslator, dshPricingWindow } from '../src/dsh-adapter/backend/translate.js'
+import { resetSessionProjection } from '../src/dsh-adapter/channel/session-reset.js'
+import { sessionWorkingDirectory } from '../src/channel/working-directory.js'
+import { displayWorkingDirectory } from '../src/sessions/format.js'
+import { t } from '../src/i18n.js'
+import { FIXTURE_DIR, buildFixtures } from './fixtures/dsh/generate.js'
+import { createProjectorHarness } from './lib/projector-harness.js'
+
+type Translator = ReturnType<typeof createDshTranslator>
+const readJsonl = (path: string): unknown[] => {
+  let raw: string
+  try { raw = readFileSync(path, 'utf8') } catch { return [] }
+  return raw.split('\n').filter(line => line.trim() !== '').map(line => JSON.parse(line) as unknown)
+}
+
+const live: AgentEvent[] = []
+const replay: AgentEvent[] = []
+let scopeReads = 0
+for (const fixture of buildFixtures()) {
+  const events = readJsonl(join(FIXTURE_DIR, `${fixture.name}.jsonl`)) as Parameters<Translator['translateReplay']>[0]
+  const frames = readJsonl(join(FIXTURE_DIR, `${fixture.name}.frames.jsonl`)) as Parameters<Translator['translateFrame']>[0][]
+  const deps = { tools: () => undefined, scope: () => { scopeReads += 1; return {} }, attachments: () => undefined }
+  const liveTranslator = createDshTranslator(deps)
+  for (const event of events) live.push(...liveTranslator.translateEvent(event))
+  for (const frame of frames) live.push(...liveTranslator.translateFrame(frame))
+  const replayTranslator = createDshTranslator(deps)
+  replay.push(...replayTranslator.translateReplay(events))
+  for (const frame of frames) replay.push(...replayTranslator.translateFrame(frame))
+}
+const of = <T extends AgentEvent['type']>(events: readonly AgentEvent[], type: T) =>
+  events.filter((event): event is Extract<AgentEvent, { type: T }> => event.type === type)
+const check = (label: string, ok: boolean): void => {
+  assert.ok(ok, label)
+  console.log(`PASS ${label}`)
+}
+
+// turn/step boundaries
+check('turn/start → turn.start{origin:user}', of(live, 'turn.start').every(event => event.origin === 'user' && Number.isInteger(event.turn)))
+const reasons = new Set(of(live, 'turn.end').map(event => event.reason.kind === 'other' ? `other:${event.reason.label}` : event.reason.kind))
+for (const reason of ['completed', 'aborted', 'error', 'blocked', 'interrupted', 'other:max-tokens']) check(`turn/end reason ${reason}`, reasons.has(reason))
+check('turn/end error keeps the raw message', of(live, 'turn.end').some(event => event.reason.kind === 'error' && event.reason.message.includes('\n')))
+check('step/start|end → step.start|end', of(live, 'step.start').length > 0 && of(live, 'step.end').length > 0)
+
+// user side
+const users = of(live, 'user.message')
+check('user/message{user} → user.message{user, first text, seq anchor}', users.some(event => event.source === 'user' && event.text === 'Summarize the fixture readme.' && event.anchor === String(event.seq) && event.blocks.length === 2))
+check('compaction checkpoint → user.message{compaction, summary}', users.filter(event => event.source === 'compaction').length === 2 && users.some(event => event.source === 'compaction' && event.text.includes('<compacted-summary>')))
+check('injected context → user.message{injected}', users.some(event => event.source === 'injected'))
+check('goal-sourced user/message never becomes a bubble', !users.some(event => event.id === 'msg-g0' || event.id === 'msg-g2'))
+const goals = of(live, 'goal.change')
+check('goal round > 0 → goal.change{round}', goals.some(event => event.operation === 'round' && event.round === 2))
+check('goal round 0 snapshot + top-level goal/change → goal.change', goals.some(event => event.operation === 'edit') && goals.some(event => event.operation === 'clear') && goals.some(event => event.operation === 'block' && event.goal?.blockedReason !== undefined))
+
+// Model provenance is durable transcript text, unlike other injected context.
+{
+  const deps = { tools: () => undefined, scope: () => ({}), attachments: () => undefined }
+  const text = '[model changed: assistant turns above this point were generated by model-a; the session continues with model-b]'
+  const event = { type: 'user/message', seq: 9002, time: 2, data: {
+    id: 'model-route', source: { kind: 'model-selection', form: 'notice', summary: 'model-a → model-b' },
+    content: [{ type: 'text', text }],
+  } } as unknown as Parameters<Translator['translateEvent']>[0]
+  const injected = { ...event, seq: 9003, data: {
+    ...event.data, source: { kind: 'plugin', plugin: 'context' },
+  } } as unknown as Parameters<Translator['translateEvent']>[0]
+  for (const replaying of [false, true]) {
+    const translator = createDshTranslator(deps)
+    const translated = replaying
+      ? translator.translateReplay([event, injected])
+      : [event, injected].flatMap(item => translator.translateEvent(item))
+    const harness = createProjectorHarness()
+    harness.apply(translated, replaying)
+    assert.deepEqual(harness.state.rows.map(row => ({ kind: row.kind, text: row.text })), [{ kind: 'notice', text }],
+      `${replaying ? 'replay' : 'live'} model selection remains visible, ordinary context stays hidden`)
+    assert.deepEqual(harness.notices, [], 'durable info does not emit another toast')
+  }
+  console.log('PASS model selection → visible info notice on live and replay; injected context stays hidden')
+}
+
+// assistant stream
+check('stream start frame → assistant.attempt.start', of(live, 'assistant.attempt.start').some(event => event.attemptId === 'attempt-b' && event.turn === 5 && event.step === 1))
+const ends = of(live, 'assistant.attempt.end')
+check('abandoned end frame → attempt.end{abandoned}', ends.some(event => event.attemptId === 'attempt-a' && event.outcome === 'abandoned' && event.turn === undefined))
+check('committed-as-attempt end frame → attempt.end{abandoned}', ends.some(event => event.attemptId === 'attempt-b' && event.outcome === 'abandoned'))
+check('durable assistant/attempt → positioned attempt.end', ends.some(event => event.turn === 4 && event.step === 1 && event.outcome === 'abandoned'))
+const deltas = of(live, 'assistant.delta')
+check('frame deltas carry kind text/reasoning/tool-args', ['text', 'reasoning', 'tool-args'].every(kind => deltas.some(event => event.seq === undefined && event.delta.kind === kind)))
+check('replayed frame revision is fenced', deltas.filter(event => event.delta.kind === 'text' && event.delta.text === 'Each frame has').length === 1)
+check('legacy assistant/chunk → positioned delta (seq, turn, step)', deltas.some(event => event.seq !== undefined && event.turn === 1 && event.step === 1))
+check('replay drops settled legacy chunks, keeps the orphan tail', of(replay, 'assistant.delta').filter(event => event.seq !== undefined).every(event => event.turn === 4))
+const messages = of(live, 'assistant.message')
+check('assistant/message → assistant.message{canonical, usage}', messages.some(event => event.canonical && event.usage?.input === 1200 && event.usage.cacheRead === 800))
+check('pre-V3 settlement is non-canonical', messages.some(event => !event.canonical))
+check('interrupted settlement keeps interrupted:true', messages.some(event => event.interrupted === true))
+check('usage keeps unknown counts unknown', messages.some(event => event.usage !== undefined && event.usage.cacheWrite === undefined))
+
+// tools
+const calls = of(live, 'tool.call')
+check('ask_user_question → presentation.card question', calls.filter(event => event.presentation?.card === 'question').length === 2)
+check('subagent tool → presentation.card subagent', calls.some(event => event.name === 'task' && event.presentation?.card === 'subagent'))
+check('ordinary tool call keeps raw args', calls.some(event => event.callId === 'call_read_1' && event.argsJson === '{"path":"docs/guide.md"}' && event.presentation === undefined))
+const results = of(live, 'tool.result')
+check('error result → isError + errorText with failure identity', results.some(event => event.callId === 'call_bash_1' && event.isError && event.errorText?.startsWith('ToolError: NONZERO_EXIT') === true))
+check('pre-0.1.7 wrapped results unwrap', results.some(event => event.callId === 'call_legacy_1' && !event.isError && event.text === 'legacy ok') && results.some(event => event.callId === 'call_legacy_2' && event.isError))
+check('ask result text reaches the projector', results.some(event => event.callId === 'call_ask_1' && event.text.startsWith('{"answers"')))
+check('harness goal/todo results carry a presentation', results.some(event => event.callId === 'call_goal_1' && event.presentation?.card === 'generic') && results.some(event => event.callId === 'call_todo_1' && event.presentation?.card === 'generic'))
+check('job_output read → task.output', of(live, 'task.output').some(event => event.taskId === 'job-7' && event.callId === 'call_job_1'))
+check('background start ack → task.start with full command', of(live, 'task.start').some(event => event.taskId === 'job-7' && event.command === 'npm run build' && event.callId === 'call_bash_2'))
+
+// request/context, header, system, session metadata, plugin events
+check('request/context → context.capacity', of(live, 'context.capacity').some(event => event.contextWindow === 64000))
+const headers = of(live, 'request.header')
+check('request/header → request.header{model, effort}', headers.some(event => event.model === 'fixture-model-b' && event.effort === 'high'))
+check('request/header without effort leaves effort unset', headers.some(event => event.effort === undefined))
+check('system/message + legacy header system → system.prompt', of(live, 'system.prompt').some(event => event.text.startsWith('You are the fixture agent')) && of(live, 'system.prompt').some(event => event.text.startsWith('Legacy system prompt')))
+check('session/title → session.title{user|auto}', of(live, 'session.title').some(event => event.source === 'auto') && of(live, 'session.title').some(event => event.source === 'user'))
+check('session/color → session.color (\'\' clears)', of(live, 'session.color').some(event => event.color === ''))
+check('valid todo/write → todo.write; malformed dropped', of(live, 'todo.write').length === 2)
+check('agent-preset/selected → preset.selected with aliases', of(live, 'preset.selected').some(event => event.preset === 'code' && event.aliases?.includes('ptc') === true))
+check('compaction bracket → compaction.start/end', of(live, 'compaction.start').length === 2 && of(live, 'compaction.end').length === 1)
+// Untrusted preset names must not resolve through Object.prototype: a
+// `constructor` marker gets no aliases and still projects as a notice row.
+{
+  const translator = createDshTranslator({ tools: () => undefined, scope: () => ({}), attachments: () => undefined })
+  const marker = { type: 'agent-preset/selected', seq: 9001, time: 0, data: { agentPreset: 'constructor' } } as unknown as Parameters<Translator['translateEvent']>[0]
+  const [selected] = translator.translateEvent(marker)
+  check('prototype-key preset → preset.selected without aliases', selected?.type === 'preset.selected' && selected.preset === 'constructor' && selected.aliases === undefined)
+  const harness = createProjectorHarness({ agentPreset: 'ptc' })
+  harness.apply(translator.translateEvent(marker))
+  harness.apply([{ type: 'preset.selected', preset: 'code', aliases: 'ptc' as unknown as readonly string[] }])
+  check('prototype-key preset projects without throwing', harness.state.rows.filter(row => row.kind === 'notice').length === 2)
+}
+// A card the window cap folded while it ran keeps only its preview when the
+// result lands: the full payload and the presentation view are not
+// re-attached past the fold line, or the fold would no longer bound memory.
+{
+  const harness = createProjectorHarness()
+  harness.apply([
+    { type: 'turn.start', turn: 1, origin: 'user', time: 0 },
+    { type: 'tool.call', seq: 1, turn: 1, step: 1, callId: 'fold-1', name: 'Bash', argsJson: '{"command":"ls"}', time: 0 },
+  ])
+  const card = harness.state.rows.find(row => row.kind === 'tool')!
+  card.folded = true
+  harness.apply([{
+    type: 'tool.result', seq: 2, turn: 1, step: 1, callId: 'fold-1', isError: false, time: 0,
+    content: [{ type: 'text', text: 'listing' }], text: 'listing',
+    presentation: { card: 'terminal', output: 'listing', exitCode: 0 },
+  }])
+  check('folded running card: the result keeps the preview, no full payload or view', card.tool?.status === 'ok' && card.tool.resultText === 'listing' && card.tool.resultFull === undefined && card.tool.resultView === undefined)
+}
+// The projector's reset forgets every per-session ledger: replaying a second
+// session through a reused projector paints what a fresh one paints.
+{
+  const history: AgentEvent[] = [
+    { type: 'turn.start', turn: 1, origin: 'user', time: 1 },
+    { type: 'user.message', id: 'u1', anchor: '1', seq: 1, turn: 1, time: 1, source: 'user', text: 'hi', blocks: [{ type: 'text', text: 'hi' }] },
+    { type: 'step.start', turn: 1, step: 1 },
+    { type: 'assistant.message', seq: 2, anchor: '2', turn: 1, step: 1, attemptId: 'seq:2', time: 2, model: 'model-a', canonical: true, blocks: [{ type: 'text', text: 'hello' }], usage: { input: 10, output: 5 } },
+    { type: 'step.end', turn: 1, step: 1 },
+    { type: 'turn.end', turn: 1, reason: { kind: 'completed' }, time: 3 },
+  ]
+  const shape = (rows: readonly { kind: string; text: string; turnUsage?: unknown }[]): string => JSON.stringify(rows.map(row => [row.kind, row.text, row.turnUsage ?? null]))
+  const fresh = createProjectorHarness()
+  fresh.apply(history, true)
+  const reused = createProjectorHarness()
+  reused.apply(history, true)
+  reused.apply([{ type: 'tool.call', seq: 3, turn: 2, step: 1, callId: 'todo-1', name: 'TodoWrite', argsJson: '{}', presentation: { card: 'todo' }, time: 4 }])
+  reused.projector.reset()
+  reused.state.rows.length = 0
+  reused.apply(history, true)
+  check('reset + replay paints what a fresh projector paints (the turn summary names its model)', shape(reused.state.rows) === shape(fresh.state.rows) && fresh.state.rows.some(row => row.turnUsage?.noteModel === true))
+  reused.apply([{ type: 'tool.result', seq: 4, turn: 2, step: 1, callId: 'todo-1', isError: true, time: 5, content: [], text: '', errorText: 'stale' }])
+  check('reset forgets the suppressed todo calls of the previous session', !reused.state.rows.some(row => row.kind === 'tool'))
+}
+// Seq lookups only match rows the projector itself painted.
+{
+  const harness = createProjectorHarness()
+  harness.apply([
+    { type: 'turn.start', turn: 1, origin: 'user', time: 1 },
+    { type: 'step.start', turn: 1, step: 1 },
+    { type: 'assistant.delta', attemptId: 'seq:3', index: 0, time: 2, turn: 1, step: 1, seq: 3, delta: { kind: 'text', text: 'chunked' } },
+    { type: 'assistant.message', seq: 4, anchor: '4', turn: 1, step: 1, attemptId: 'seq:4', time: 3, canonical: false, blocks: [{ type: 'text', text: 'chunked' }] },
+    { type: 'step.end', turn: 1, step: 1 },
+    { type: 'turn.end', turn: 1, reason: { kind: 'completed' }, time: 4 },
+  ])
+  // A reconnect re-delivers the durable chunk: it lands on the row it opened.
+  harness.apply([{ type: 'assistant.delta', attemptId: 'seq:3', index: 0, time: 2, turn: 1, step: 1, seq: 3, delta: { kind: 'text', text: 'chunked' } }], true)
+  harness.projector.settleStreaming()
+  check('a re-delivered chunk reuses the row it opened', harness.state.rows.filter(row => row.kind === 'assistant').length === 1)
+  // "Load earlier" prepends rows from a separate projection whose seqs can
+  // collide with live ones; a live settlement must never land on them.
+  const older = projectHistorySlice([
+    { type: 'assistant.message', seq: 7, anchor: 'older-7', turn: 1, step: 1, attemptId: 'older-7', time: 1, canonical: true, blocks: [{ type: 'text', text: 'older answer' }] },
+  ], 'preview')
+  prependHistoryRows(harness.state.rows, older)
+  harness.apply([{ type: 'assistant.message', seq: 7, anchor: 'live-7', attemptId: 'live-7', time: 9, canonical: true, blocks: [{ type: 'text', text: 'live answer' }] }])
+  const assistants = harness.state.rows.filter(row => row.kind === 'assistant')
+  check('a live settlement never overwrites a restored row with the same seq', assistants[0]?.text === 'older answer' && assistants.at(-1)?.text === 'live answer')
+}
+// Session-search call cards: the header carries the query instead of the
+// upstream static sentence, but only while that sentence is still the pinned
+// 0.2.1-rc.2 wording — an upstream rewrite must win without editing this app.
+// The query is JSON-encoded because the header is one line: newlines, quotes
+// and control bytes stay printable instead of rewriting the header row.
+{
+  const titleFor = (presented: string, name: string, args: string): string | undefined => {
+    const translator = createDshTranslator({
+      tools: () => ({ get: () => ({ presentCall: () => ({ card: 'generic', title: presented }) }) }),
+      scope: () => ({}),
+      attachments: () => undefined,
+    })
+    const [event] = translator.translateEvent({
+      type: 'tool/call', seq: 1, time: 1,
+      data: { turn: 1, step: 1, callId: `call-${name}`, name, arguments: args },
+    } as never)
+    const presentation = (event as { presentation?: { card?: string; title?: string } } | undefined)?.presentation
+    return presentation?.card === 'generic' ? presentation.title : undefined
+  }
+  check('a session-search card header carries its query',
+    titleFor('Search prior sessions', 'session_search', '{"query":"resume preflight"}') === 'Sessions("resume preflight")')
+  check('the event-search card header carries its query too',
+    titleFor('Search session events', 'session_event_search', '{"query":"preflight"}') === 'Events("preflight")')
+  check('a newline inside the query stays one printable header line',
+    titleFor('Search prior sessions', 'session_search', '{"query":"alpha\\nbeta"}') === 'Sessions("alpha\\nbeta")')
+  check('quotes in the query are escaped in the header',
+    titleFor('Search prior sessions', 'session_search', '{"query":"say \\"hi\\""}') === 'Sessions("say \\"hi\\"")')
+  check('control bytes in the query never reach the header raw',
+    titleFor('Search prior sessions', 'session_search', '{"query":"a\\u001b[31mb"}') === 'Sessions("a\\u001b[31mb")')
+  check('an upstream wording change wins over the refinement',
+    titleFor('Find in prior sessions', 'session_search', '{"query":"x"}') === 'Find in prior sessions')
+  check('unparseable args leave the call on the plain fallback card',
+    titleFor('Search prior sessions', 'session_search', 'not json') === undefined)
+  check('a non-session tool is never retitled',
+    titleFor('Search files', 'grep', '{"query":"x"}') === 'Search files')
+}
+
+// create_worktree cards: the header names the branch while the upstream title
+// is still the bare tool name, and a settled result without an upstream
+// presenter becomes the checkout path plus what it started from, titled with
+// the branch (a generated name only exists in the result).
+{
+  const cardFor = (presented: string, args: string, result?: string, presentResult?: () => unknown) => {
+    const translator = createDshTranslator({
+      tools: () => ({ get: () => ({ presentCall: () => ({ card: 'generic', title: presented }), presentResult }) }),
+      scope: () => ({}),
+      attachments: () => undefined,
+    })
+    const [call] = translator.translateEvent({
+      type: 'tool/call', seq: 1, time: 1,
+      data: { turn: 1, step: 1, callId: 'call-wt', name: 'create_worktree', arguments: args },
+    } as never)
+    const [settled] = result === undefined ? [] : translator.translateEvent({
+      type: 'tool/result', seq: 2, time: 2,
+      data: { turn: 1, step: 1, callId: 'call-wt', message: { id: 'msg-wt', role: 'tool', content: [{ type: 'text', text: result }], source: { kind: 'tool', callId: 'call-wt' }, toolCallId: 'call-wt' } },
+    } as never)
+    type View = { card?: string; title?: string; content?: Array<{ text?: string }> }
+    return {
+      title: (call as { presentation?: View } | undefined)?.presentation?.title,
+      result: (settled as { presentation?: View } | undefined)?.presentation,
+    }
+  }
+  const created = JSON.stringify({
+    path: '/repo/.agents/worktrees/fix-login', branch: 'fix-login',
+    baseCommit: '81029c98f4d2731e1f88b6430721f4d2990bc76f', repositoryRoot: '/repo',
+  })
+  const named = cardFor('create_worktree', '{"name":"fix-login","from":"main"}', created)
+  check('a create_worktree header names the requested branch', named.title === 'Worktree("fix-login")')
+  check('a create_worktree result reads as path and base, not JSON',
+    named.result?.card === 'generic' && named.result.title === 'Worktree("fix-login")' &&
+    named.result.content?.map(block => block.text).join('') === `.agents/worktrees/fix-login\n${t('worktree-result-base', { from: 'main', commit: '81029c9' })}`)
+  const generated = cardFor('create_worktree', '{}', JSON.stringify({ ...JSON.parse(created), branch: 'worktree-1a2b' }))
+  check('a call without a name keeps the plain header until the result names the branch',
+    generated.title === 'create_worktree' && generated.result?.title === 'Worktree("worktree-1a2b")' &&
+    generated.result.content?.[0]?.text?.endsWith(`\n${t('worktree-result-base', { from: 'HEAD', commit: '81029c9' })}`) === true)
+  const outside = cardFor('create_worktree', '{"name":"x"}', JSON.stringify({ ...JSON.parse(created), path: '/elsewhere/x' }))
+  check('a checkout outside the repository shows its absolute path', outside.result?.content?.[0]?.text?.startsWith('/elsewhere/x\n') === true)
+  check('a control byte in the name stays printable in the header',
+    cardFor('create_worktree', '{"name":"a\\u001b[31mb"}').title === 'Worktree("a\\u001b[31mb")')
+  check('an upstream title change wins over the header refinement',
+    cardFor('Create worktree', '{"name":"fix-login"}').title === 'Create worktree')
+  check('an upstream result presenter wins over the summary',
+    cardFor('create_worktree', '{"name":"fix-login"}', created, () => ({ card: 'generic', title: 'upstream' })).result?.title === 'upstream')
+  check('an unexpected result shape keeps the raw text', cardFor('create_worktree', '{}', 'not json').result === undefined)
+}
+
+// DSH 0.2.1 `working-directory/change` (issue #1724): the durable move
+// projects as the session's current directory while `cwd` stays the project;
+// replay keeps the last move and an adoption reset forgets it.
+{
+  const translator = createDshTranslator({ tools: () => undefined, scope: () => ({}), attachments: () => undefined })
+  const move = (seq: number, cwd: unknown) => translator.translateEvent({ type: 'working-directory/change', seq, time: 0, data: { cwd } } as unknown as Parameters<Translator['translateEvent']>[0])
+  const [moved] = move(1, '/fixture/.agents/worktrees/try')
+  check('working-directory/change → session.cwd', moved?.type === 'session.cwd' && moved.cwd === '/fixture/.agents/worktrees/try')
+  check('working-directory/change without a cwd → nothing', move(2, '').length === 0 && move(3, undefined).length === 0)
+  const harness = createProjectorHarness()
+  check('no recorded move = the project', harness.state.workingDirectory === undefined && sessionWorkingDirectory(harness.state) === '/fixture')
+  harness.apply([{ type: 'session.cwd', cwd: '/fixture/src' }, { type: 'session.cwd', cwd: '/fixture/.agents/worktrees/try' }], true)
+  check('session.cwd: last move wins, project cwd unchanged', sessionWorkingDirectory(harness.state) === '/fixture/.agents/worktrees/try' && harness.state.cwd === '/fixture')
+  check('display follows the move', displayWorkingDirectory(harness.state) === '/fixture/.agents/worktrees/try')
+  check('display keeps the host form until the session moves', displayWorkingDirectory({ cwd: 'ssh://box', displayCwd: '/srv/app', workingDirectory: 'ssh://box' }) === '/srv/app')
+  resetSessionProjection(harness.state, { value: 0 }, () => undefined, () => undefined, () => undefined)
+  check('adoption reset forgets the previous session move', harness.state.workingDirectory === undefined)
+}
+
+const customs = of(live, 'custom').map(event => event.nativeType)
+check('unknown plugin events → custom', customs.includes('fixture-plugin/note') && customs.includes('other-plugin/ping') && customs.includes('developer/message'))
+
+// replay = live vocabulary
+const types = (events: readonly AgentEvent[]) => [...new Set(events.map(event => event.type))].sort().join(',')
+check('replay and live share one vocabulary', types(replay) === types(live))
+check('no presenter scope read without a tools registry', scopeReads === 0)
+check('DeepSeek pricing window buckets peak/idle', dshPricingWindow(Date.UTC(2026, 0, 5, 1, 30)) === 'peak' && dshPricingWindow(Date.UTC(2026, 0, 5, 13, 0)) === 'idle')
+console.log(`verify-dsh-translate OK (${live.length} live / ${replay.length} replay events)`)

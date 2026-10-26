@@ -1,0 +1,22 @@
+{
+  "name": "@dsh-std/connection",
+  "version": "0.1.1-rc.3",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/T-Auto/dsh-std.git", "directory": "packages/connection" },
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": { "types": "./lib/index.d.ts", "default": "./lib/index.js" },
+    "./memory": { "types": "./lib/memory.d.ts", "default": "./lib/memory.js" }
+  },
+  "files": ["lib", "CHANGELOG.md"],
+  "scripts": {
+    "build": "pnpm run typecheck && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": { "@dsh-std/core": "workspace:^" },
+  "engines": { "node": "^22.19 || >=24" }
+}

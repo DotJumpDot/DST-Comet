@@ -1,0 +1,573 @@
+# Configuration
+
+[Documentation index](README.md) · [简体中文](configuration.md)
+
+## Profiles and patch layers
+
+After an npm/profile installation, user configuration lives at:
+
+```text
+$DSH_HOME/profiles/dsh-tui/cordis.patch.yml
+```
+
+When `DSH_HOME` is unset, it normally defaults to `~/.dsh`. The file is a
+top-level YAML array and may use the `!!js` expressions supported by DSH.
+
+Profile startup layers, in order:
+
+- `dsh-base`
+- Installed bundles
+- The package's `cordis.patch.yml`
+- The user patch (applied last)
+
+A user configuration normally overrides an existing row by `id`; use `insert`
+only for a genuinely new service.
+
+> When a row is overridden, its `config` block is replaced as a whole. It is
+> not deep-merged, so repeat every key that must remain active.
+
+## Web search and fetch (DSH 0.2.1-rc.3)
+
+The standard DSH profile loads the new DeepSeek Search / Fetch API providers,
+while Messages search and local HTTP fetch remain the defaults. In `/settings`,
+use the arrow keys in **Web search** to select **Search API** and **Fetch API**.
+Each selection saves immediately and applies to the next operation. Choose
+**Messages** / **HTTP** to restore the original providers. Enter accepts a custom
+provider ID. Sections use the plugin's actual Loader entry ID, including custom IDs.
+
+**Web search** has one **API key** input. Paste the key for the selected search API;
+typing is masked and confirmation saves it in DSH's credential store, outside
+profile configuration. Reopening shows only whether a key is configured. Blank
+input preserves the saved key, and switching APIs selects that API's credential.
+
+The **DeepSeek Search / Fetch API** section edits the API base URL,
+result count (1–50), and **Send original question**. The base URL
+includes the path prefix without `/search` or `/fetch`; its default is
+`https://api.deepseek.com/v1/tools`. DSH supplies an authorized account token for the account route.
+Search sends the first 128 characters of the latest user prompt by default;
+the section can disable this. Messages search has its own endpoint and maximum
+search count section.
+
+The user profile patch can also select both providers:
+
+```yaml
+- id: web
+  config:
+    searchProvider: deepseek-search-api
+    fetchProvider: deepseek-fetch-api
+```
+
+The TUI uses DSH's tools, authentication, cancellation and persisted results;
+it does not make an additional model request. Older hosts and compositions
+without the API plugin omit these new settings. The official `deepseek-official`
+and `deepseek-account` routes show a `1017` marker for `DeepSeek-V4.1-Flash` in
+the model list, retaining the original route IDs.
+
+## Official request metadata and feedback reporting
+
+The TUI bundle inherits reporting configuration from the installed official DSH
+composition; it does not add services absent from that composition. The current
+validated line has these defaults, with profile, home and CLI patches still able
+to override them:
+
+| Setting | Official default | Data and trigger |
+| --- | --- | --- |
+| `plugin-package-inventory-deepseek.enabled` | `true` | `dsh_plugin_packages` on `deepseek-official` requests, containing active plugin package names and versions so TUI usage can be identified |
+| `session-log-deepseek.enabled` | `true` | `dsh_session_log` on `deepseek-official` requests, incrementally carrying canonical Session events that may include the working directory, prompts, conversation content, and tool arguments and results; controlled independently of package inventory |
+| `session-telemetry-otel.mode` | `FEEDBACK_ONLY` | New explicit feedback authorizes OTel upload of the Session-log prefix through that feedback, including context; ordinary chat does not trigger this channel |
+
+The first two fields are request metadata outside model input and add no model
+input tokens. Both go to the adapter's configured `baseURL`, including third-party
+gateways. They accompany the corresponding DeepSeek requests and do not measure
+all TUI usage through the Claude/Codex backends.
+
+Feedback telemetry supports the upstream environment variables:
+
+- `DSH_TELEMETRY_MODE=DISABLED` stops OTel Session-log upload; the default
+  `FEEDBACK_ONLY` authorizes upload only after feedback.
+- Any non-empty `DSH_TELEMETRY_DISABLED` value, including `0` or `false`, disables
+  the `session-telemetry-otel` row at startup. Remove the variable to restore it;
+  it does not control the two API request metadata fields above.
+- `DSH_TELEMETRY_OTLP_URL` overrides the OTel collector address. When unset, the
+  installed official version supplies the endpoint and exporter parameters.
+
+To stop API request metadata, disable either field in the user profile patch:
+
+```yaml
+- id: plugin-package-inventory-deepseek
+  config:
+    enabled: false
+- id: session-log-deepseek
+  config:
+    enabled: false
+```
+
+Restart the TUI after changing its bundle or launch environment. Restoring bundle
+defaults does not remove existing user patches.
+
+## TUI configuration
+
+The `dsh-tui` section of `/settings` lives in the TUI's own
+`~/.dsh-tui/settings.json`, shared by every kernel (DSH, Claude, Codex). When that file
+does not exist yet, the first launch imports the editable fields of the `dsh-tui`
+row's `config` from the active profile's `cordis.patch.yml` once (read only; the
+profile is not changed and `!!js` expressions are not imported), and never again.
+The `dsh-tui` section an older host kept in `~/.dsh/settings.yaml` is imported too:
+a file DSH has not moved yet wins over the patch row; one DSH already moved into the
+patch (renamed `settings.yaml.imported`) sits beneath it.
+After the import, those fields left in the profile patch only act as a static
+deployment layer under the DSH kernel (a fallback while the user layer is unset);
+remove them from the patch so both kernels see the same defaults. Other plugins'
+sections still go through DSH's settings service (written to the active profile's
+`cordis.patch.yml`; older hosts use `~/.dsh/settings.yaml`).
+Language and layout preferences update live; fullscreen and image previews
+require `/restart`.
+
+A complete common override looks like this:
+
+```yaml
+- id: dsh-tui
+  config:
+    provider: deepseek-official
+    model: deepseek-flash
+    # Prefer leaving cwd unset — the default resolves to the git worktree
+    # root containing the launch directory. To pin a fixed workspace, use an
+    # absolute path (e.g. cwd: /repo/packages/app), NOT `!!js process.cwd()`
+    # (that pins the workspace to the launch subdirectory, issue #96).
+    effort: max
+    activity: true
+    activityFrames: moon8
+    contextBar: true
+    fullscreen: false
+    terminalImages: true
+    preset: !!js process.env.DSH_TUI_PRESET ?? undefined
+    workspace: !!js process.env.DSH_TUI_WORKSPACE_TARGET ?? undefined
+    sessionId: !!js process.env.DSH_TUI_RESUME_SESSION ?? undefined
+```
+
+| Field | Default/source | Meaning |
+| --- | --- | --- |
+| `provider` | Harness `agentDefaultModel`; bare compositions fall back to `deepseek-official` | DSH model route; provider and model must both be set to form an explicit route |
+| `model` | Harness `agentDefaultModel`; bare compositions fall back to `deepseek-flash` | Startup model; `/model` selects the next request’s model within the same session. Precedence: the persisted `/model` choice (`~/.dsh-tui/model.json`, the route the last session ran, whole pair) > a complete `provider`+`model` pair here (deployment default) > the harness default. A half pin (provider or model alone) counts as unset and never merges with half the preference (issue #67) |
+| `cwd` | git worktree root containing the launch directory (`process.cwd()` when outside any worktree; a dotfiles repo at `$HOME` does not count) | TUI-side session workspace: agent meta, `@` completion/mention expansion, /resume filtering, statusline; resuming an existing session adopts that session's persisted cwd. Note the bash/fs-policy/sandbox roots are still owned by the composition layer's cordis config (default: the launch directory, governed by dsh-base) and may differ from this session-side cwd |
+| `workspace` | unset | Startup workspace target: a local path, `file://` URL, or plugin-provided URI; takes precedence over `cwd` |
+| `effort` | normally `max` in the bundle | Reasoning effort applied to every request (validated against the runtime model's levels; unsupported preferences fall back to a lower offered tier or the model default, with a notice), also shown in the header at startup. Precedence: /settings `effortDefault` (`auto` defers) > the persisted `/effort` choice (`~/.dsh-tui/effort.json`, the level the last session ran on) > this field (deployment default) > the model default |
+| `effortDefault` | unset | Default reasoning effort (`/settings` user layer). On DSH, an explicit value outranks persisted `/effort`; `auto` defers to that choice and `effort`. Claude/Codex apply changes through their own controls and backend preferences; Auto at startup and resumed sessions retain those preferences, and explicitly choosing Auto resets the model default. `/settings` offers the current backend/model's actual effort catalog, including custom IDs. An unsupported saved value remains readable and stored; during loading/failure only Auto is selectable. Explicit changes reach the next request; resuming a session preserves its own effort |
+| `whale` / `whaleIdle` | `true` / `true` | Header whale and welcome-page idle animation |
+| `splashFont` | `daily` | Big-text face on the header splash: `daily` rotates by local date (the default), any other value is a face id (`bold` / `square` / `bevel` / `wide` / `dot` / `stencil` / `classic` / `slab`) pinning that one; an unknown value falls back to `daily`. Also editable through `/settings` |
+| `whaleGirl` | `false` | Maid-portrait toggle: For the DeepSeek brand, Companion skins deepy and whaleGirl take the splash art slot; choose whale and enable Maid portrait to show the maid. Claude uses its own artwork; Codex uses its own raster portrait or the maid character-art fallback. Both brands ignore these settings for splash artwork. "Companion skin" is `companion.skin`; when the toggle does apply, the portrait renders the real raster through the terminal image protocols (Kitty/Sixel) and falls back to the character-art maid without them. See the precedence table below |
+| `minimal` | `false` | Minimal UI (极简界面): reduce header decoration and colors. **A display switch only** — a different thing from the kernel's `minimal` agent preset under `preset` below (that one decides which tools the model can use) |
+| `sidePanel.splitEnabled` | `true` (boolean) | Master switch of the split layout: on, `Ctrl+B` and `/panel` open the side column next to the chat; off, neither splits and `/jobs` & co. keep their full-screen panels. Applies immediately |
+| `sidePanel.open` | `false` (boolean) | Whether a session opens with the sidebar already expanded; off by default, so the upgrade leaves the layout as it was. An in-session `Ctrl+B` / `/panel toggle` is not written back here. Applies immediately |
+| `sidePanel.ratio` | `0.68` (number, 0.1–0.95) | Chat column as a fraction of the content width; while the panel has focus, `+`/`-` nudge it live for the current session (not written back). Applies immediately |
+| `sidePanel.panels` | `*` (`*` or comma-separated text) | `*` (the default) enables every registered panel — the eight built-ins in their default order, then plugin panels in registry order; registering or unregistering a panel never rewrites this value. An explicit comma list enables **exactly** those ids, in PanelBar order: a registered panel it does not name (including one registered later) stays off, shown unchecked in `/settings` and one tick away; a well-formed id nothing claims yet stays in the tab bar as a checked placeholder for a plugin to register later. A malformed entry is refused (the store is tolerant: bad tokens are dropped, and a value with no usable id falls back to `*`). The `⤢` on the right edge of the bar blows the active panel up to full screen (drawn only for panels that declare a fullscreen form). Applies immediately. Temporary plugin panels show their titles and distinct run-local numbers; their toggles affect only this run and are never saved, and a legacy `actN:panel` placeholder never claims a panel — remove it and reselect. A verified Component named `actN` keeps its runtime address and is recorded as `component:actN:panel` only in saved preferences. |
+| `companion.skin` | `deepy` | Skin of the companion-panel pet: `deepy` (default, the deepy whale kit), `whaleGirl` (the whale-girl sticker pack, 22 animations incl. interaction reactions) or `whale` (the splash's layered pixel whale); the panel is enabled by default and can be changed in `sidePanel.panels`. **For the DeepSeek brand it also picks the splash (header) art slot**: while Companion skin is deepy or whaleGirl, that mascot takes the slot (neither the pixel whale nor the maid portrait is drawn) and the Maid-portrait toggle (`whaleGirl`) has no effect; set Companion skin to whale to get the original path back (the pixel whale, or the maid portrait once the toggle is on). Applies immediately; see the precedence table below |
+| `btw.contextTurns` | `4` (number, 1–8) | Completed Q/A pairs a `/btw` follow-up carries; older pairs stay in the thread and panel but are not sent. Applies immediately |
+| `btw.contextBudget` | `24000` (number, 1000–200000) | Character budget for the recent Q/A pairs a `/btw` follow-up carries; the oldest pairs drop first. Applies immediately |
+| `codeFrameStyle` | `light` | Frame of fenced code blocks in replies: `light` is a top label plus a left rail and costs no extra rows; `full` closes the box. Very narrow terminals always use a plain fence. Applies immediately |
+| `turnUsageRow` | `false` (boolean) | Show a right-aligned usage row at the end of each turn (tokens in/out, cache, duration, retries); `/tokens`, `/status` and the footer hover report the same numbers either way |
+| `modes` | built-in trio | Shift+Tab session-mode cycle (plan/sandbox/approval atom bundles); defaults to default → plan → full-access |
+| `upstreamRetry` | `true` | Seed a retry policy (5 attempts, transport-drop-aware failure codes including `STREAM_CLOSED`) on the `llm-pi-ai` provider route the bound session actually uses, whenever it declares no `retryPolicy` — at every bind (boot, `/model` switch, resume), through the official `llm-pi-ai` settings section (the policy the kernel's `llm-retry` plugin executes). Dormant channels are never written; routes with an explicit `retryPolicy` (cordis.yml or hand-edited settings) are never overwritten; `false` opts out entirely |
+| `activity` | `true` | Show the live activity row |
+| `activityFrames` | `moon8` | Activity animation preset; `/activity` changes it at runtime. A legacy saved value of `claude` is read as `moon8`, and the picker no longer offers that legacy preset |
+| `contextBar` | `true` | Segmented context-usage bar below the input box; `false` hides the row. Both this and `/settings → statusBar.contextBar` (also on by default) must be on for it to render |
+| `fullscreen` | `true` (factory default since 0.9.0) | `true` uses the alternate screen, app scrolling, and mouse selection; `false` uses inline mode |
+| `terminalImages` | `true` | Allow previews in supported terminals; `false` keeps text metadata and skips image probing and preview decoding. Restart to apply changes |
+| `preset` | roster default `standard` | Agent preset for new sessions; precedence: `DSH_TUI_PRESET` (this run) > the persisted `/preset` choice > this field (deployment default) > the roster default |
+| `sessionId` | unset | Session to resume, normally injected by the Windows `--resume` launcher |
+| `backend` | unset (the backend `/kernel` remembers, else `dsh`) | Session backend: the built-in `dsh`, or an installed backend (the experimental `claude` / `codex`, plus plugin backends; case-insensitive). **An unknown or uninstalled value starts on `dsh` with a warning**, never a crash. The profile row reads `DSH_TUI_BACKEND`, which `dsh-tui --backend <id>` sets. When the profile's own patch writes it as a `!!js` expression (other than one that only forwards `DSH_TUI_BACKEND`, such as the bundled row's `process.env.DSH_TUI_BACKEND \|\| undefined`), the launch goes through `dsh --profile` (only the profile's Loader evaluates it), except for a `/kernel` switch. See [Claude backend](claude-backend.en.md) |
+
+For the DeepSeek brand, when header art (`whale`) is enabled, `companion.skin` and the Maid-portrait toggle (`whaleGirl`) choose the splash art with this precedence:
+
+| `companion.skin` | Splash (header) art slot | Maid-portrait toggle |
+| --- | --- | --- |
+| `deepy` (default) | the Deepy mascot (letter-grid animation only — no raster) | **No effect** |
+| `whaleGirl` | Whale-girl mascot (real image through the image protocol; letter-grid fallback without it) | **No effect** |
+| `whale` | Original path: the pixel whale; the maid portrait once the Maid-portrait toggle is on (real image preferred, character-art fallback) | **Applies** |
+
+The table applies when Brand look (`brand`) resolves to `deepseek` (including `auto` on the DSH backend). Claude uses its own raster or character artwork. Codex uses its own raster portrait, falling back to the maid character art when raster images are unavailable or fail to load. Neither brand uses `companion.skin` or `whaleGirl`; choose the DeepSeek brand look to use the skins or maid portrait above. Turning header art off hides the art for every brand.
+
+### Precedence and force-off
+
+- `/settings → Terminal image previews` overrides `config.terminalImages`.
+- Without a saved choice, the config value applies and defaults to on.
+- Enabling still needs Kitty graphics support and a display mode that allows
+  image rendering.
+- `DSH_TUI_DISABLE_TERMINAL_IMAGES=1` always forces previews off.
+- Disabled previews do not read or decode image data or send image rendering
+  commands; sending images to the model is unaffected.
+- The checkbox edits the preview preference; an environment override is shown
+  separately as “Image previews (forced off)” in the settings list.
+
+### Restart
+
+- This switch is read at startup.
+- Use `/restart` after changing it to restart the TUI and resume the current
+  session; `/reload` does not apply it.
+- If a turn is running, wait for it to finish or stop it with `Ctrl+C` before
+  restarting.
+
+## Diagnostic environment variables
+
+The following variables are for diagnostics or experimental terminal
+integration. They are all off by default and take effect only when explicitly
+set:
+
+| Variable | Purpose |
+| --- | --- |
+| `DSH_TUI_DEBUG_REPAINTS=1` | Record repaint diagnostics |
+| `DSH_TUI_COMMIT_LOG=1` | Record render-commit diagnostics |
+| `DSH_TUI_ACCESSIBILITY=1` | Enable accessibility related display paths |
+| `DSH_TUI_TMUX_TRUECOLOR=1` | Enable the truecolor detection path in tmux |
+| `DSH_TUI_TAB_STATUS=1` | Experimental terminal tab-status opt-in; off by default, with no guarantee of support in every terminal |
+
+Diagnostic output does not change session events or model routing. Enable
+only the variable needed for the terminal or rendering issue being
+investigated.
+
+## Live activity row
+
+`dsh-working-activity` is installed with the package and inserted by its
+patch. The working line reads the plugin's `workingActivity` session
+projection, which requires `dsh-working-activity` ≥ 0.5.0 — that release
+replaced the old `activity/status` event outlet with the projection, so
+older plugin versions produce no working line. Override only the existing
+ID when tuning it:
+
+```yaml
+- id: working-activity
+  config:
+    publishIntervalMs: 500
+```
+
+Do not insert a second row and do not separately run
+`dsh plugin ... add dsh-working-activity` for the same profile.
+
+## Agent presets
+
+Each session composes its model-visible tools and prompt through the official
+preset registry: `@deepseek-ai/dsh-agent-preset-registry` on 0.1.7, or
+`@deepseek-ai/dsh-agent-presets` on older hosts:
+
+| ID | Name | Capability |
+| --- | --- | --- |
+| `standard` | Standard (default) | Editing, shell, search, skills, planning, goals, subagents, and workflows |
+| `ptc` (0.1.2) / `code` (legacy 0.1.1) | PTC | Standard plus the PTC SDK presentation for composing operations in TypeScript; both names resolve compatibly across versions |
+| `minimal` | Minimal | Kernel agent preset: a single persistent-shell tool (bash on POSIX, pwsh on Windows), with no compaction, no plan mode and no runtime context. `str_replace_editor` has been opt-in since 0.1.3-alpha.2, so this preset does not include it. The cost is stated up front: no compaction and no tool-result pruning (a long session can hit the context limit, oversized tool output stays in full), and `/compact` plus the questionnaire are unavailable — Help and `/` completion mark the entry, and entering/resuming the preset says so once |
+| `cordis` | Creation | Standard plus runtime inspection and plugin-experimentation tools |
+| `liangshen` | Liangshen mode | Minimal's minimal tool surface first for root and delegated agents, the full catalog after the first tool call, and a fresh anchor after compaction |
+
+> ⚠️ Do not confuse the 「极简模式」 (Minimal) preset here with `/settings → Appearance → 极简界面`
+> (Minimal UI, config key `dsh-tui.minimal`): the preset is a **kernel agent preset** and changes
+> which tools the model can see and call, while Minimal UI only trims interface decoration
+> (header splash, emoji glyphs, decorative colors, footer fields) and has no effect on capability.
+
+### Selecting and switching
+
+- `/preset` opens the picker.
+- `/preset <id>` selects directly; `/preset status` reports the current state.
+- Picker names and descriptions come from registry declarations (from
+  `preset.yml` on older hosts).
+- Under the `en` UI language (`/lang en`), the built-in presets show localized
+  English names and descriptions.
+- Built-in presets: `standard` / `minimal` / `ptc` (legacy `code`) / `cordis` / `liangshen`;
+  custom presets are shown as-is.
+- A blank session can switch in place. Once a conversation has started, the
+  official blank-only rule stores the choice as the new default for `/new` or
+  the next launch.
+
+### Default and precedence
+
+- The default is stored in `~/.dsh-tui/agent-preset.json`.
+- Precedence: `DSH_TUI_PRESET` (this run's explicit instruction), then the
+  persisted preference, then an explicit `config.preset` (deployment default),
+  then the roster default `standard`.
+- A legacy `code` preference resolves to `ptc` when the active roster no
+  longer provides `code`, then migrates after that successful resolution;
+  rc rosters keep their real `code` id, and session logs are never rewritten.
+- Resuming a session restores the preset recorded in that session's log and
+  does not overwrite it with the current default.
+
+### Liangshen mode
+
+- Liangshen mode ships with dsh-tui. On 0.1.7 it registers with the official
+  registry; an existing profile declaration with the same id takes precedence.
+  Older hosts install it into the user preset root, preserving unmanaged directories.
+- The first-round `bash` on Windows runs an auto-discovered Git Bash, trying
+  in order:
+  - The installation tree of a `git.exe` found on PATH (covers installer,
+    portable, and Scoop layouts; Scoop shims are followed)
+  - Conventional install roots and Scoop's conventional directories
+  - Bare `bash` on PATH (final fallback)
+  - It never accepts the System32 WSL launcher as Git Bash
+- Set `DSH_TUI_LIANGSHEN_BASH_PATH` to an absolute `bash.exe` path to pin it.
+- The pin is the only candidate; a miss warns and skips registration, exposing
+  the full tool catalog on the first round.
+
+### Windows bash tool (winbash)
+
+`presets/winbash.mjs` is a bundled Windows `bash` tool plugin. Mounted at
+the host layer it serves **every Agent preset** (unrelated to Liangshen mode; it is not a
+`/preset` entry). Its behavior mirrors the official `dsh-tool-bash` — the official bash
+executor `dsh-bash-local` is POSIX-only and does not support Windows, hence this plugin.
+
+- Every call runs `bash -c <command>` in a fresh shell; state never persists across calls.
+  `description` is required (labels the call in the UI).
+- `run_in_background: true` admits the command as a background job and returns the job id
+  at once; collect with `job_output`, stop with `job_kill`. No timeout applies in the
+  background.
+- A foreground command that outlives its timeout keeps running as its background job and
+  hands the id back (`promoteOnTimeout`; can be disabled).
+- Non-zero exits are reported as `[exit code: N]` markers, not tool errors.
+- Compositions without a job registry degrade to foreground-only (timeout kills) and do
+  not expose `run_in_background`.
+- Git Bash discovery follows the Liangshen chain (see above); set
+  `DSH_TUI_WINBASH_BASH_PATH` (legacy name `DSH_TUI_LIANGSHEN_BASH_PATH` still works)
+  to pin `bash.exe`.
+
+Mounting: copy `presets/winbash.mjs` into the profile root and append to the
+plugin list of `cordis.patch.yml`:
+
+```yaml
+- id: windows-bash
+  name: './custom-bash.mjs'
+  disabled: !!js process.platform !== 'win32'
+```
+
+Configuration (the mount row's `config`):
+
+| Key | Default | Meaning |
+|---|---|---|
+| `timeoutMs` | `120000` | Default foreground timeout (ms) |
+| `maxTimeoutMs` | `600000` | Per-call timeout cap (also the tool-level hard cap with jobs) |
+| `maxOutputBytes` | `64000` | Per-stream in-memory output cap |
+| `enableRunInBackground` | `true` | Expose the background flag (needs a job registry) |
+| `promoteOnTimeout` | `true` | Promote a timed-out foreground call instead of killing it |
+| `bashPath` | — | Pin `bash.exe` explicitly (same as the env variable) |
+
+> The Liangshen preset's built-in `custom-bash` registers the same `bash` tool name:
+> mount at most one of them per profile. When running the Liangshen preset, set this
+> row's `disabled` to `true` (the Liangshen copy is foreground-only).
+
+### Custom presets
+
+On 0.1.7, declare `@deepseek-ai/dsh-agent-preset` through a profile/bundle with
+`id`, `name`, and `plugins` in its config. Migrate old directory presets to
+bundles using the upstream workflow; TUI no longer scans directories itself.
+Older hosts still discover `$DSH_HOME/.agent-presets/<name>/agent.cordis.yml`.
+
+Since 0.3, model-side tools, planning, compaction, and delegation are owned by
+the preset. Profile mode no longer uses the old `DSH_TUI_COMPACT_RATIO`,
+`DSH_TUI_COMPACT_RETAIN`, or the former TUI's subagent-depth customization; configure
+those policies in the preset instead.
+
+## MCP
+
+The official `@deepseek-ai/dsh-mcp-client` supports both stdio and streamable
+HTTP. Mounted tools are registered as `mcp__<server>__<tool>` and enter the
+model tool set automatically.
+
+Insert servers in the user `cordis.patch.yml`:
+
+```yaml
+- insert:
+    - id: mcp-context7
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: stdio
+        serverName: context7
+        command: npx
+        args: ['-y', '@upstash/context7-mcp']
+
+    - id: mcp-remote
+      name: '@deepseek-ai/dsh-mcp-client'
+      config:
+        transport: streamable-http
+        serverName: remote
+        url: https://example.com/mcp
+        headers:
+          Authorization: !!js process.env.MCP_TOKEN
+```
+
+Run `/mcp` to inspect connected servers and tool counts. Consult the
+[DeepSeek Harness configuration catalog](https://deepseek-harness.github.io/deepseek-harness/reference/config-catalog#deepseek-ai-dsh-mcp-client)
+for the complete field reference.
+
+## Environment variables
+
+| Variable | Purpose |
+| --- | --- |
+| `VISUAL` / `EDITOR` | External editor opened by `Ctrl+G` (`VISUAL` wins; arguments like `code --wait` are allowed; with neither set the TUI prompts you to configure one — no `vi` fallback) |
+| `DEEPSEEK_API_KEY` | Required DeepSeek credential |
+| `DEEPSEEK_BASE_URL` | Override the compatible DeepSeek API endpoint |
+| `DSH_HOME` | Harness home (profiles, sessions, credentials, attachments); falls back to the upstream default `~/.dsh` |
+| `DSH_TUI_PERSONA` | Override the Agent persona injected by the composition |
+| `DSH_TUI_PRESET` | Override the default Agent preset for new sessions |
+| `DSH_TUI_THEME` | Pin a built-in (`auto`/`light`/`dark`/`dark-ansi`/`pink-day`/`pink-night`/`pink-ansi`), static theme, or registered plugin theme ahead of persisted selection |
+| `DSH_TUI_DISABLE_MOUSE` | Temporarily disable mouse handling in fullscreen mode |
+| `DSH_TUI_PROGRAM_STATUS` | Set to `0` (or `false`/`no`/`off`) to stop reporting session state to the terminal with [OSC 7501](https://www.superlogical.com/rex/docs/build/program-status); on by default and a no-op on terminals that do not implement it |
+| `DSH_TUI_DISABLE_TERMINAL_IMAGES` | Set to `1` to force Kitty/Sixel probing, preview reads/decoding, and terminal image rendering off, overriding config and /settings; text metadata remains visible |
+| `DSH_TUI_IMAGE_PROTOCOL` | `auto` (default), `kitty`, `sixel`, or `none`; override protocol selection without bypassing the preview preference, disable switch, non-fullscreen, accessibility or multiplexer guards |
+| `DSH_TUI_RESUME_SESSION` | Resume a session at startup, normally set by a launcher |
+| `DSH_TUI_RESUME_BACKEND` | The backend `DSH_TUI_RESUME_SESSION` was read from; set only when the launcher **derived** the target (a bare `--resume` reading that backend's last session, or the safe-mode retry following the last-run record). When the boot lands on another backend — an uninstalled id falling back to `dsh`, or the remembered kernel when `DSH_TUI_BACKEND` is absent — that target **refuses with a non-zero exit**: never carried across, never a silent cold start, never a new session (the safe-mode retry is the one exception, degrading to a warning plus a cold start). An id the user passed explicitly carries no mark and is handed over as it is |
+| `DSH_TUI_RESUME_RETRY` | One-shot marker: this boot is safe mode's "retry normal startup". A retry derives its target from the last-run record, whose backend may no longer be registered, so a launch carrying this marker degrades a revoked resume target to a warning plus a cold start instead of failing. The boot deletes it from `process.env` as soon as it reads it |
+| `DSH_TUI_BACKEND` | Session backend (built-in `dsh` / `claude` / `codex`, or an installed plugin backend), normally set by `dsh-tui --backend`; an uninstalled or misspelled id starts on `dsh` with a warning (with a resume request in play it refuses instead, see above) |
+| `DSH_TUI_HOST_ENTRY` | Set to `0` to start both kernels through `dsh --profile` (by default both start from the package's own entry). When the entry cannot use the installed dsh (the `dsh` on `PATH` is not `@deepseek-ai/dsh`, its launcher script cannot be followed, or a module or export it needs is missing), a DSH launch falls back to `dsh --profile` by itself and says why in the terminal and on screen |
+| `DSH_TUI_CLAUDE_PERMISSION_MODE` | Start permission mode of the Claude backend (`default`/`acceptEdits`/`plan`/`dontAsk`/`bypassPermissions`); wins over the mode `/permission` remembered |
+| `DSH_TUI_WORKSPACE_TARGET` | Workspace path or URI resolved at startup, normally set by `dsh-tui <target>` |
+| `DSH_TUI_SESSION_ROOT` | Override the JSONL session root; profile default `$DSH_HOME/sessions`, bare `cordis.yml` default `~/.dsh-tui/sessions` |
+| `DSH_PERMISSION_MODE` | Override the non-Windows sandbox policy, such as `workspace-write` or `danger-full-access`; the initial permission plane of this launch, outranking the remembered `/permission` choice |
+| `DSH_TUI_WORKSPACE` | Working directory used by the Windows `dsh-tui.cmd` launcher |
+| `DSH_TUI_DEBUG` | Enable dsh-tui diagnostics on stderr |
+| `DSH_TUI_RENDER_LOG` | File path for raw ANSI frame capture |
+
+The old `CC_TUI_*` and `DSH_CC_*` names come from earlier release naming and
+are no longer read as of this release; use the `DSH_TUI_*` prefix.
+
+Two directories are involved and neither substitutes for the other:
+
+- **Harness home**: `$DSH_HOME`, falling back to the upstream default `~/.dsh`.
+  Holds profiles, sessions, credentials, and attachments. Early releases pinned
+  it to `~/.dsh-cc`.
+- **TUI data directory**: `~/.dsh-tui` (a fixed path, independent of
+  `$DSH_HOME`). Holds `/model` (persisted at `~/.dsh-tui/model.json`, surviving
+  restart and `/new`), `/lang`, `/theme` and similar preferences plus
+  `resume.txt`. Early releases wrote these under `$DSH_HOME` instead.
+
+`DSH_TUI_RENDER_LOG` may capture visible prompts, tool arguments, and output.
+Do not attach it to a public issue without reviewing and redacting it.
+
+## `/provider`: manage model providers at runtime
+
+`/provider` opens an interactive wizard to add, edit, or delete model
+providers without a restart.
+
+- Sources: built-in catalog routes or custom API endpoints.
+- Only providers written by the **user settings layer** can be edited or
+  deleted; ones inherited from the composition base cannot be removed.
+- Keys are written to `~/.dsh/.credentials.yaml` (mode 0600) and render as
+  `••••••`.
+- Only non-environment keys are written to the store; a key shared with
+  another provider is kept on delete.
+- Editing the model list re-fetches the candidates: a built-in catalog route
+  starts from the installed catalog snapshot and, whenever the route stores a
+  baseURL (or the add flow just collected one), also probes
+  `GET {baseURL}/models` live with the stored key and merges the listings —
+  ids only the endpoint advertises are tagged as new and carry their
+  disclosed capacities once enabled; already-enabled models are pre-checked
+  and only an explicit un-check removes one. A catalog route without a
+  baseURL shows the snapshot only, with the origin noted in the question
+  detail. Catalog routes with no single known protocol or custom request
+  headers also explain the limitation and stay on the snapshot, rather than
+  saving endpoint-only models into an unverifiable profile.
+
+Where it writes:
+
+| Artifact | Location |
+| --- | --- |
+| Provider profile | `llm-pi-ai.providers.<route>` in the active profile config on 0.1.7, or `~/.dsh/settings.yaml` on older hosts; the route registers on write and unregisters on delete |
+| API key | `~/.dsh/.credentials.yaml` (mode 0600), referenced as `<ROUTE>_API_KEY` |
+
+### Built-in subscription OAuth
+
+The standard profile's `dsh-tui-auth` row loads this package's `./oauth`
+entry; it **no longer depends on a separate `dsh-auth` plugin package**.
+The `/provider` add branch signs in to ChatGPT/Codex (`openai-codex`), Claude
+(`anthropic`), or Grok (`xai`) subscriptions. When the installed host's pi-ai
+catalog ships the corresponding flows, it also offers OpenAI direct ChatGPT sign-in
+(`openai`, using the OpenAI API rather than the legacy Codex backend) and Meta
+Muse (`meta`). The primary validated DSH `0.2.1-rc.3` development fixture resolves pi-ai
+`1.2.0`, which includes Meta Muse and OpenAI direct sign-in.
+`/auth status`, `/auth login [provider]`, and `/auth logout <provider>` use
+that credential store for these pi-ai routes. Browser authorization tries to open the page
+automatically and offers the authorization link and manual callback URL/code
+input on one question;
+device-code flows show a copyable code while polling. A host without an
+interactive question surface refuses sign-in explicitly.
+
+The `dsh-tui-auth` row accepts `providers` (default: all supported flows present
+in the installed pi-ai catalog; an explicit non-empty subset must exist in
+that catalog), `credentialsFile` (custom file path), and
+`modelOverrides.<provider>.<model>` (optional `contextWindow` and `maxTokens`).
+A profile override replaces the whole `config` block, so retain every field
+you need. The flow implementation comes from the host's `dsh-llm-pi-ai` / pi-ai
+installation. Subscription authentication uses its subscription backend; it
+is not a general-purpose API key.
+
+The default credential file remains `$DSH_HOME/dsh-auth/credentials.json`
+(`~/.dsh/dsh-auth/credentials.json` when `DSH_HOME` is unset), with
+`DSH_AUTH_CREDENTIALS` as an override. Existing sign-ins need no migration or
+re-login. The `ctx.dshAuth` service name and `dsh-auth` log prefix remain for
+compatibility; they do not imply a separate installed package. The file
+contains long-lived refresh tokens; directory/file modes are best-effort
+0700/0600. OpenAI direct login lazily creates a stable UUID in a sibling
+`device-id` file (0600); pi-ai uses it as the installation's agent-host ID.
+Status surfaces show only sign-in and expiry metadata. Models appear in the
+picker after sign-in. If another `llm-pi-ai` profile already owns the same
+provider route, the OAuth route refuses duplicate registration.
+
+### DeepSeek account authorization
+
+DSH `0.2.0-rc.1+` separately provides the Host-owned `deepseekAccount` service
+and `deepseek-account` model route. The standard profile includes it in the
+same `/provider` account sign-in branch and the `/auth status` and `/login`
+lists. You can also run `/auth login deepseek-account` directly, then select
+a `deepseek-account` model via `/model`. This is a **different route** from
+`deepseek-official`, which still needs `DEEPSEEK_API_KEY`. The command
+`/auth logout deepseek-account` delegates sign-out to the Host: it removes the Host's local
+grant, while the Host handles remote revocation in the background. The TUI
+does not implement PKCE, read the account token, or put the grant in the
+`dsh-auth/credentials.json` file above. DeepSeek account grants have no pi-ai
+token expiry/refresh timestamp, so status surfaces show only signed in/out.
+`dsh-tui-auth.config.providers` and `modelOverrides` still control pi-ai
+routes only; do not put `deepseek-account` in them.
+
+The browser callback uses the Host `webServer` service. A TUI-only profile's
+`dsh-tui-webserver` row listens on `127.0.0.1` with an OS-assigned port; a
+mixed Web+TUI profile reuses the official `webserver` row instead of opening a
+second listener. If a profile-only update leaves an older global TUI patch
+that mounts `dsh-tui-auth` but lacks `dsh-tui-webserver`, the built-in OAuth
+entry starts the same official Host listener on `127.0.0.1` at the first
+DeepSeek sign-in, using an OS-assigned port. It reuses an existing listener
+and closes only its own fallback when the OAuth module unmounts; a declared
+but disabled or failed webserver row is not bypassed. The question
+panel tries to open the authorization URL and offers the full link plus copy,
+reopen, and cancel actions. The DeepSeek flow **requires the callback**; it
+has no manual-code fallback. If a remote TUI
+uses your local browser over SSH, override `dsh-tui-webserver.port` to a fixed
+port and forward that same port (for example,
+`ssh -L 43123:127.0.0.1:43123 ...`):
+
+```yaml
+- id: dsh-tui-webserver
+  config:
+    host: 127.0.0.1
+    port: 43123
+```
+
+In a mixed Web profile, override the official `webserver` row. A stale global
+patch cannot apply a fixed-port override to a row it lacks, so SSH users must
+also update the global TUI package before forwarding a fixed port. Missing or
+unstartable callback listeners fail sign-in clearly without affecting the
+other pi-ai OAuth routes.
+
+## Composition constraints
+
+- `user-interaction` normally comes from `dsh-base`. The plugin creates a
+  fallback in a bare composition, but the profile patch must not insert a
+  duplicate.
+- When manually inserting a subagent provider, mount the core `subagent`
+  service first.
+- A custom `plan-mode` override requires a non-empty `section`.
+- Profile mode uses the base JSONL persistence row rooted at the shared
+  `~/.dsh/sessions`, allowing TUI and Web to read the same history.
+- `cordis.yml` is a bare-composition example and may have a different service
+  topology. Normal installation and user overrides should follow
+  `cordis.patch.yml`.
+
+`DSH_TUI_SESSION_ROOT` always names a JSONL root. `dsh --profile dsh-tui`
+defaults to `$DSH_HOME/sessions` (normally `~/.dsh/sessions/`); direct
+`dsh --config cordis.yml` defaults to `~/.dsh-tui/sessions/`.
+
+See [Architecture and limitations](architecture.en.md#permissions-and-security-boundary)
+for permission behavior and platform differences.

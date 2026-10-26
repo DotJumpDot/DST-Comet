@@ -1,0 +1,35 @@
+{
+  "name": "@dsh-std/core",
+  "version": "0.1.1-rc.2",
+  "license": "MIT",
+  "repository": { "type": "git", "url": "git+https://github.com/T-Auto/dsh-std.git", "directory": "packages/core" },
+  "publishConfig": { "access": "public" },
+  "type": "module",
+  "main": "lib/index.js",
+  "types": "lib/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./lib/index.d.ts",
+      "default": "./lib/index.js"
+    },
+    "./identity": {
+      "types": "./lib/identity.d.ts",
+      "default": "./lib/identity.js"
+    },
+    "./json": {
+      "types": "./lib/json.d.ts",
+      "default": "./lib/json.js"
+    },
+    "./version": {
+      "types": "./lib/version.d.ts",
+      "default": "./lib/version.js"
+    }
+  },
+  "files": ["lib", "CHANGELOG.md"],
+  "scripts": {
+    "build": "pnpm run typecheck && tsdown",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "engines": { "node": "^22.19 || >=24" }
+}
