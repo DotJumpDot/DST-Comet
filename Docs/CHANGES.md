@@ -1,7 +1,8 @@
 # Modified files (vs upstream pin 2957277)
 
 House rule: one line per file, why it changed. New upstream pins re-apply
-this list.
+this list. Commits and pushes follow the AGENTS.md commit style
+(`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
 ## 2026-10-26 — comet transcript & sidebar pass (tool tones, final summary, mascot)
 
