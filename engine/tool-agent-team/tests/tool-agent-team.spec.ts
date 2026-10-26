@@ -190,3 +190,20 @@ test('team_snapshot folds roster, task load, and park state into one call', asyn
   assert.equal(mateRow.pendingTasks, 1)
   assert.equal(mateRow.waitingOnHuman, undefined)
 })
+
+test('wait_agent surfaces a user abort as a structured result, not an error', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  await mod.apply(ctx)
+  const wait = registered.find(row => row.name === 'wait_agent')!.definition
+  ctx.agentTeams.waitForChange = async () => {
+    throw Object.assign(new Error("wait_agent aborted: { kind: 'user' }"), { code: 'TEAM_WAIT_ABORTED' })
+  }
+  const result = await wait.execute({}, exec(lead))
+  assert.equal(result.timedOut, false)
+  assert.equal(result.interrupted, true)
+  assert.match(result.message, /interrupted/)
+
+  // non-abort failures still propagate
+  ctx.agentTeams.waitForChange = async () => { throw new Error('engine exploded') }
+  await assert.rejects(() => wait.execute({}, exec(lead)), /engine exploded/)
+})

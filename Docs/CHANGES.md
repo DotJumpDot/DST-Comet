@@ -4,6 +4,20 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — run-log hardening (live orchestra feedback, 15.7k-line export)
+
+| File | Why |
+|---|---|
+| `engine/tool-agent-team/src/index.ts` | `wait_agent` no longer surfaces a user Esc as `Error: wait_agent aborted: { kind: 'user' }` — TEAM_WAIT_ABORTED is caught at the tool layer and returned as `{timedOut: false, interrupted: true, message}` (steering event, not a failure); other errors still propagate |
+| `engine/tool-agent-team/tests/tool-agent-team.spec.ts` | pins the graceful-abort result and that non-abort failures still throw |
+
+Companion Constellation-MCP commit `3fc2998` (separate repo) from the same
+export: `browser_run_code_unsafe` compat tool with a working Node `require`
+(the team's 11 escape-hatch calls failed on upstream's VM), OOB tokens/hits
+persisted across restarts (the mid-run hot-swap wiped their SSRF evidence),
+OOB port-collision fallback to an ephemeral port, repo_status errors naming
+the cwd they ran in, browser_map header de-duplication.
+
 ## 2026-10-27 — team-message mark fix (font-safe arrow)
 
 | File | Why |

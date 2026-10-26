@@ -78,6 +78,31 @@ function modelMember(member: TeamMemberView): InferValue<typeof MEMBER_VIEW_SCHE
   return { target: name, ...details }
 }
 
+/** waitForChange with a graceful user-abort path: a human pressing Esc during
+ *  a wait is a normal steering event, not a tool failure — surface it as a
+ *  structured result instead of the raw `wait_agent aborted: { kind: 'user' }`
+ *  TeamError the transcript used to show. */
+async function waitForChangeGracefully(
+  ctx: Context,
+  caller: Agent,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<InferValue<typeof WAIT_VALUE_SCHEMA>> {
+  try {
+    return await ctx.agentTeams.waitForChange(caller, timeoutMs, signal) as InferValue<typeof WAIT_VALUE_SCHEMA>
+  } catch (error) {
+    const code = (error as { code?: unknown }).code
+    const aborted = code === 'TEAM_WAIT_ABORTED'
+      || (error instanceof Error && error.message.startsWith('wait_agent aborted'))
+    if (!aborted) throw error
+    return {
+      timedOut: false,
+      interrupted: true,
+      message: 'wait_agent was interrupted (the user aborted the wait). Re-list with list_agents / team_snapshot before deciding the next step.',
+    }
+  }
+}
+
 /** Project one registry human task into its model-facing view. */
 function humanTaskView(task: HumanTask): InferValue<typeof HUMAN_TASK_VIEW_SCHEMA> {
   return {
@@ -138,12 +163,15 @@ const SEND_VALUE_SCHEMA = {
   },
 } as const
 
-/** `noProgress` is present only on the model-only shortcut that skips the wait. */
+/** `noProgress` is present only on the model-only shortcut that skips the wait;
+ *  `interrupted` only when the wait ended by a user abort instead of an error. */
 const WAIT_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     timedOut: { type: 'boolean', required: true },
+    interrupted: { type: 'boolean' },
+    message: { type: 'string' },
     noProgress: {
       type: 'object',
       additionalProperties: false,
@@ -427,7 +455,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         // Preserve TeamService's authoritative timeout validation before the
         // model-only no-progress shortcut.
         if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 3_600_000) {
-          return await ctx.agentTeams.waitForChange(caller, timeoutMs, exec.signal)
+          return await waitForChangeGracefully(ctx, caller, timeoutMs, exec.signal)
         }
         // The active-peer read and waiter registration must remain one synchronous
         // span; awaiting between them can lose the only peer-status edge.
@@ -442,7 +470,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
             },
           }
         }
-        return await ctx.agentTeams.waitForChange(caller, timeoutMs, exec.signal)
+        return await waitForChangeGracefully(ctx, caller, timeoutMs, exec.signal)
       },
     })))
 
