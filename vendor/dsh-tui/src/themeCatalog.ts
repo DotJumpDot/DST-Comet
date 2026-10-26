@@ -65,6 +65,7 @@ function entry(
  */
 const BUILT_IN_BASE: Readonly<Record<(typeof THEME_NAMES)[number], ThemeBase>> = {
   dark: 'dark',
+  comet: 'dark',
   'dark-ansi': 'dark-ansi',
   light: 'light',
   'pink-night': 'dark',

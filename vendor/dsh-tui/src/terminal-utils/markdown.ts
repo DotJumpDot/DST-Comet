@@ -108,6 +108,43 @@ function paintInlineCode(text: string): string {
   return colorize(text, getActiveTheme().permission, 'foreground')
 }
 
+// ── DST Comet prose palette ─────────────────────────────────────────────────
+// HTTP method words in PLAIN prose get the theme's per-method color — the
+// same guard CometStream classic uses: the lookahead requires a following
+// space + slash, so the verb "get" in ordinary sentences never matches and
+// only request-shaped spans (`GET /api/x`) light up. Methods inside inline
+// code stay the theme's permission blue (the explicitly-kept DST look) and
+// fenced blocks keep their syntax highlighting; this only touches bare text.
+const PROSE_METHOD_TEST = /\b(?:GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)\s+\//
+const PROSE_METHOD_PATTERN = /\b(GET|POST|PUT|PATCH|DELETE|HEAD|OPTIONS)(?=\s+\/)/g
+const PROSE_QUOTE_TEST = /[“”]/
+
+function colorizeProseMethods(text: string): string {
+  if (!PROSE_METHOD_TEST.test(text)) return text
+  const theme = getActiveTheme()
+  return text.replace(PROSE_METHOD_PATTERN, word => {
+    switch (word) {
+      case 'GET': return colorize(word, theme.methodGet, 'foreground')
+      case 'POST': return colorize(word, theme.methodPost, 'foreground')
+      case 'PUT': return colorize(word, theme.methodPut, 'foreground')
+      case 'PATCH': return colorize(word, theme.methodPatch, 'foreground')
+      case 'DELETE': return colorize(word, theme.methodDelete, 'foreground')
+      default: return colorize(word, theme.methodHead, 'foreground')
+    }
+  })
+}
+
+/** Curly-quoted spans (“…”), pink in the comet palette. Straight quotes stay
+ *  untouched: apostrophes and code make them false-positive mines. Themes
+ *  whose proseQuote equals their text render uncolored. */
+const PROSE_QUOTE_PATTERN = /“([^”<>]+)”/g
+function colorizeProseQuotes(text: string): string {
+  if (!PROSE_QUOTE_TEST.test(text)) return text
+  const theme = getActiveTheme()
+  if (theme.proseQuote === theme.text) return text
+  return text.replace(PROSE_QUOTE_PATTERN, span => colorize(span, theme.proseQuote, 'foreground'))
+}
+
 /**
  * Inline code that reads as a file path becomes a clickable target (the
  * OSC 8 wrap keeps the code's permission color via the identity style —
@@ -418,7 +455,12 @@ function renderEmphasis(token: Tokens.Em, state: RenderState): string {
 
 function renderStrong(token: Tokens.Strong, state: RenderState): string {
   const inner = token.tokens.map(child => dispatch(child, inlineChildren(state))).join('')
-  return chalk.bold(inner)
+  // DST Comet: bold steps up to the theme's proseStrong — pure white in the
+  // comet palette (the classic transcript's contrast against 80% body text).
+  // Themes whose proseStrong equals their text keep the plain bold run.
+  const theme = getActiveTheme()
+  if (theme.proseStrong === theme.text) return chalk.bold(inner)
+  return chalk.bold(colorize(inner, theme.proseStrong, 'foreground'))
 }
 
 /** Double-tilde strikethrough; marked's del tokenizer never pairs single
@@ -615,7 +657,10 @@ function renderText(token: Tokens.Text, state: RenderState): string {
   if (token.tokens) {
     return token.tokens.map(child => dispatch(child, withParent(state, token))).join('')
   }
-  return linkifyText(token.text)
+  // DST Comet prose palette: methods first (the lookahead needs the literal
+  // " /" after the word — linkify's OSC 8 wraps would defeat it), then
+  // curly-quoted spans, then the ordinary linkify pass.
+  return linkifyText(colorizeProseQuotes(colorizeProseMethods(token.text)))
 }
 
 function renderTable(token: Tokens.Table, state: RenderState): string {

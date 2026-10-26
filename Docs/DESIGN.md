@@ -59,20 +59,33 @@ Other themes untouched.
 `⚓ Thinking · 12s · 37 lines (ctrl+o to expand)` — duration was upstream
 (settled, ≥1s), the line count is new (`thinking-lines` i18n key, zh+en).
 
-## 6. ⬜ Colorful transcript (CometStream-classic palette)
+## 6. ✅ Colorful transcript (CometStream-classic palette) — 2026-10-26
 
-Requirements captured: inline code / API paths **keep** the current blue
-(`theme.permission` — `terminal-utils/markdown.ts` paints inline code with
-it; do not touch). What remains:
+Implemented as a theme-system feature, not a fork of the renderer:
 
-- A `comet` built-in theme (`theme.ts` + `themeCatalog.ts` role) with a
-  richer token palette: distinct colors for paths, quoted values, commands
-  in prose (the pic-7 look), while links keep accent blue.
-- Possibly extend `markdown.ts` colorization for prose-embedded paths and
-  quoted strings (currently only inline code + links are colored).
-- HTTP method badges (`GET/POST/…`) exist nowhere in a TUI transcript —
-  only inside fenced code blocks, where `syntaxTheme.ts` governs. Decide:
-  keep syntax colors, or add a method-token color.
+- **New `comet` built-in theme** (`theme.ts`, spreads `dark`): body text
+  softens to `#C9C7C1` (the classic 80% white — bold pops instead of
+  merging into a wall of white), bold emphasis `#FFFFFF`, curly-quoted
+  spans pink `#F472B6`. Vivid diffs and the mist-blue accents inherit.
+  Registered in `THEME_NAMES`, `getTheme`, `themeCatalog` (base role
+  `dark`); `/theme` lists it next to `dark`; the user's `theme.json` is
+  preset to `comet`.
+- **8 new theme tokens** (`methodGet/Post/Put/Patch/Delete/Head`,
+  `proseStrong`, `proseQuote`) across all 10 built-ins: dark family gets
+  CometStream's pastel 300-series pills (GET `#7DD3FC`, POST `#6EE7B7`,
+  PUT `#FCD34D`, PATCH `#C4B5FD`, DELETE `#FCA5A5`, HEAD `#A1A1AA`), light
+  family the 700-series (`#0284C7`, `#059669`, `#D97706`, `#7C3AED`,
+  `#DC2626`, `#52525B`), ANSI themes nearest 16-color equivalents.
+  `proseStrong`/`proseQuote` equal to `text` render uncolored — every
+  non-comet theme's output stays byte-stable (13 markdown/theme gates pass
+  unchanged).
+- **Prose colorization** (`terminal-utils/markdown.ts`): HTTP method words
+  in plain prose colored per method — CometStream's exact guard
+  (`\b(GET|POST|…)(?=\s+\/)`, so the verb "get" never matches; methods
+  inside inline code keep the blue). Curly-quoted spans and bold via the
+  theme tokens, no-op gated as above.
+- **Kept blue**: inline code / API paths (`permission` token) untouched —
+  the explicitly-kept DST look (user directive).
 
 ## 7. ⬜ Splash / branding
 
@@ -81,6 +94,22 @@ it; do not touch). What remains:
 words + art skin) means extending `Brand`, `BRAND_SPLASH_WORDS`,
 `BRAND_THEMES`, `brandOfBackend`. The sidebar header (item 1) is the first
 piece of that identity.
+
+## 8. Agent-team orchestration (bug-bounty "Mother" mode) — 2026-10-26
+
+- `@deepseek-ai/dsh-experimental-agent-team-profile@0.2.1-rc.2` installed
+  into the `dsh-tui` profile (persistent teammates = separate sessions with
+  their own 1M contexts; `spawn_teammate`/`send_message`/task board replace
+  the legacy one-shot subagents while mounted; TUI Ctrl+A shows the team
+  view).
+- The bug-bounty workspace protocol (Mother coordinator, ≤3 fresh
+  site-teammates, docs-only `researcher`, one-shared-browser/one-tab-each,
+  ≤15-line messages, STATE.md-before-compaction, escalation) lives in the
+  workspace's `AGENTS.md` §8 (auto-injected by agent-spine); a reusable
+  copy ships at `orchestra/BUG_BOUNTY_TEAM_PROTOCOL.md`.
+- Compaction threshold raised `0.2 → 0.45` (fork `cordis.yml`): sessions
+  ride to ~450k of the 1M window before auto-compact — the user's
+  "compact at a good checkpoint between 400–600k" preference.
 
 ## Verify loop (Windows)
 

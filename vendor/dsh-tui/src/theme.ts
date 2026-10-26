@@ -97,6 +97,19 @@ export type Theme = {
   syntaxOperator: string
   syntaxPunctuation: string
   syntaxConstant: string
+  // DST Comet prose palette (terminal-utils/markdown.ts): HTTP method words
+  // in plain prose (colored per method, the CometStream-classic pills),
+  // curly-quoted spans, and bold emphasis. Themes that keep proseStrong/
+  // proseQuote equal to `text` render those uncolored — output stays
+  // byte-stable for every non-comet palette.
+  methodGet: string
+  methodPost: string
+  methodPut: string
+  methodPatch: string
+  methodDelete: string
+  methodHead: string
+  proseStrong: string
+  proseQuote: string
   // Agent colors
   // Grove colors
   professionalBlue: string
@@ -230,6 +243,7 @@ export function isThemeColorKey(value: unknown): value is ThemeColorKey {
  */
 export const THEME_NAMES = [
   'dark',
+  'comet',
   'dark-ansi',
   'light',
   'pink-night',
@@ -376,6 +390,17 @@ const darkTheme: Theme = {
   syntaxOperator: rgb('#93A1B0'), // blue grey
   syntaxPunctuation: rgb('#7A8694'), // dim blue grey
   syntaxConstant: rgb('#C98291'), // softened rose
+  // DST Comet prose palette: the classic method pills (pastel 300-series on
+  // dark). proseStrong/proseQuote mirror `text` so non-comet output stays
+  // byte-stable; the comet palette opts into brighter bold + pink quotes.
+  methodGet: rgb('#7DD3FC'),
+  methodPost: rgb('#6EE7B7'),
+  methodPut: rgb('#FCD34D'),
+  methodPatch: rgb('#C4B5FD'),
+  methodDelete: rgb('#FCA5A5'),
+  methodHead: rgb('#A1A1AA'),
+  proseStrong: rgb('#E8E6E0'),
+  proseQuote: rgb('#E8E6E0'),
   professionalBlue: rgb('#7DA1DE'),
   chromeYellow: rgb('#D8B270'),
   // Pre-theme values, now overridable: the mist family's bar ramp (shared with
@@ -410,6 +435,21 @@ const darkTheme: Theme = {
   subagentStatusRunning: rgb('#7DA1DE'),
   subagentStatusCompleted: rgb('#82B89D'),
   subagentStatusFailed: rgb('#DA8A93'),
+}
+
+/**
+ * DST Comet (`comet`): the mist dark family with the CometStream-classic
+ * transcript voice. Body text softens to the classic 80% white so bold
+ * emphasis pops as pure white instead of merging into a wall of white;
+ * HTTP method words carry the classic pastel pills and curly-quoted spans
+ * go pink (terminal-utils/markdown.ts). Inline code / API paths keep the
+ * family's permission blue — the explicitly-kept DST look.
+ */
+const cometTheme: Theme = {
+  ...darkTheme,
+  text: rgb('#C9C7C1'),
+  proseStrong: rgb('#FFFFFF'),
+  proseQuote: rgb('#F472B6'),
 }
 
 /**
@@ -562,6 +602,15 @@ const lightTheme: Theme = {
   syntaxOperator: rgb('#5B6672'),
   syntaxPunctuation: rgb('#9AA0A8'),
   syntaxConstant: rgb('#A84472'), // muted rose accent
+  // DST Comet prose palette: 700-series method colors readable on light.
+  methodGet: rgb('#0284C7'),
+  methodPost: rgb('#059669'),
+  methodPut: rgb('#D97706'),
+  methodPatch: rgb('#7C3AED'),
+  methodDelete: rgb('#DC2626'),
+  methodHead: rgb('#52525B'),
+  proseStrong: rgb('#343945'),
+  proseQuote: rgb('#343945'),
   professionalBlue: rgb('#5E88CC'),
   chromeYellow: rgb('#C99A3F'),
   // Same chrome as `dark` (bar and caret were never light-specific), except the
@@ -931,6 +980,15 @@ const darkAnsiTheme: Theme = {
   syntaxOperator: 'ansi:white',
   syntaxPunctuation: 'ansi:blackBright',
   syntaxConstant: 'ansi:redBright',
+  // DST Comet prose palette: nearest 16-color method approximations.
+  methodGet: 'ansi:cyanBright',
+  methodPost: 'ansi:greenBright',
+  methodPut: 'ansi:yellowBright',
+  methodPatch: 'ansi:magentaBright',
+  methodDelete: 'ansi:redBright',
+  methodHead: 'ansi:white',
+  proseStrong: 'ansi:whiteBright',
+  proseQuote: 'ansi:whiteBright',
   professionalBlue: 'ansi:blueBright',
   chromeYellow: 'ansi:yellowBright',
   // The bar keeps a blue/cyan ladder inside the 16-colour space (the truecolor
@@ -1039,6 +1097,15 @@ const pinkNightTheme: Theme = {
   syntaxOperator: rgb('#A8929C'),
   syntaxPunctuation: rgb('#8A7680'),
   syntaxConstant: rgb('#E0709A'),
+  // DST Comet prose palette (dark sakura: classic pastel pills).
+  methodGet: rgb('#7DD3FC'),
+  methodPost: rgb('#6EE7B7'),
+  methodPut: rgb('#FCD34D'),
+  methodPatch: rgb('#C4B5FD'),
+  methodDelete: rgb('#FCA5A5'),
+  methodHead: rgb('#A1A1AA'),
+  proseStrong: rgb('#F0E4E9'),
+  proseQuote: rgb('#F0E4E9'),
   professionalBlue: rgb('#E08CA8'),
   chromeYellow: rgb('#E3B56C'),
   mascotBody: rgb('#D98A63'),
@@ -1129,6 +1196,15 @@ const pinkDayTheme: Theme = {
   syntaxOperator: rgb('#5F5260'),
   syntaxPunctuation: rgb('#A3959E'),
   syntaxConstant: rgb('#A84472'),
+  // DST Comet prose palette (light sakura: 700-series pills).
+  methodGet: rgb('#0284C7'),
+  methodPost: rgb('#059669'),
+  methodPut: rgb('#D97706'),
+  methodPatch: rgb('#7C3AED'),
+  methodDelete: rgb('#DC2626'),
+  methodHead: rgb('#52525B'),
+  proseStrong: rgb('#3D2B33'),
+  proseQuote: rgb('#3D2B33'),
   professionalBlue: rgb('#CE5A80'),
   chromeYellow: rgb('#C99A3F'),
   mascotBody: rgb('#D98A63'),
@@ -1271,6 +1347,8 @@ export function getTheme(themeName: ThemeName): Theme {
     // resolver round-trip there re-enters theme-file parsing recursively.
     case 'dark':
       return darkTheme
+    case 'comet':
+      return cometTheme
     case 'dark-ansi':
       return darkAnsiTheme
     // Built-in bases must resolve without touching the custom-theme resolver

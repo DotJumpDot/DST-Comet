@@ -251,9 +251,11 @@
 - id: compact
   name: '@deepseek-ai/dsh-compaction-basic'
   config:
-    # DeepSeek advertises a 1M context window, so the 80% default threshold
-    # would never make manual /compact useful. Default 20% (200k tokens)
-    # with a 5% retained tail; both are overridable for tests and must keep
+    # DST Comet: auto-compact rides to 45% of the 1M window (~450k tokens)
+    # — the bug-bounty long-run preference (compact at 400-600k at a good
+    # checkpoint, never the early 200k). Sessions keep a STATE.md in the
+    # workspace as the pre/post-compaction memory (see the repo's orchestra
+    # protocol); both ratios stay env-overridable and must keep
     # retainRatio < thresholdRatio (BasicCompactConfig validates this).
-    thresholdRatio: !!js parseFloat(process.env.DSH_TUI_COMPACT_RATIO ?? '0.2')
+    thresholdRatio: !!js parseFloat(process.env.DSH_TUI_COMPACT_RATIO ?? '0.45')
     retainRatio: !!js parseFloat(process.env.DSH_TUI_COMPACT_RETAIN ?? '0.05')

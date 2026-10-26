@@ -3,6 +3,23 @@
 House rule: one line per file, why it changed. New upstream pins re-apply
 this list.
 
+## 2026-10-26 — comet theme + prose palette + agent-team orchestration
+
+- `src/theme.ts`: 8 new Theme keys (method pills ×6, proseStrong,
+  proseQuote) across all built-ins; new `comet` theme (soft body text,
+  white bold, pink quotes); vivid-diff base inherited. Registered in
+  THEME_NAMES/getTheme/themeCatalog.
+- `src/themeCatalog.ts`: comet base role.
+- `src/terminal-utils/markdown.ts`: HTTP-method prose coloring
+  (CometStream's path-lookahead guard), curly-quote spans, theme-gated
+  bold; no-op (byte-stable) for themes whose tokens equal `text`.
+- `cordis.yml`: compact thresholdRatio default `0.2 → 0.45`.
+- Profile: `dsh-experimental-agent-team-profile@0.2.1-rc.2` added;
+  `~/.dsh-tui/theme.json` preset to `comet`.
+- `orchestra/BUG_BOUNTY_TEAM_PROTOCOL.md`: reusable Mother-mode protocol
+  (deployed into the Bug_Bounty workspace's AGENTS.md §8).
+- Gates: 13 markdown/theme gates pass; full verify:build re-run.
+
 ## 2026-10-26 — recheck pass (bug fixes)
 
 - `AssistantToolUseMessage.tsx`: one-line suppression now skips RUNNING cards
