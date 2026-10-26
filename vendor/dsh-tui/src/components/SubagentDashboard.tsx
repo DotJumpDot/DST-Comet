@@ -8,6 +8,7 @@ import { Divider } from './design-system/Divider.js'
 import { isPlainReturnInput } from '../utils/modifiers.js'
 import { usePanelInput } from './sidePanel/usePanelInput.js'
 import type { SidePanelKeyFlags } from './sidePanel/types.js'
+import { getTaskBoardTab, setTaskBoardTab, subscribeTaskBoardTab, toggleTaskBoardTab, type TaskBoardTab } from './sidePanel/taskBoardTab.js'
 import { AgentMessagesSummary } from './messages/AgentMessageFlow.js'
 import type { AgentMessageView, AgentIdentity } from './messages/agentTeam.js'
 import type { TeamTask, TeamView } from '../adapter/ports/channel-view.js'
@@ -111,22 +112,43 @@ const TASK_GLYPH: Record<TeamTask['status'], { readonly glyph: string; readonly 
   completed: { glyph: '●', color: 'success' },
 }
 
-/** The team's shared task board, read-only; narrow widths drop the owner.
- *  A subject wider than the row budget is truncated, so it carries a hover
- *  tooltip with the full text (DST Comet: unreadable tasks on a narrow
- *  panel were the report); fully visible subjects stay tooltip-free. */
+/** The team's shared task board, read-only, split into Doing / Finished tabs
+ *  (DST Comet: one ever-growing list buried live work under completed rows
+ *  the user could not clear). Rows keep the truncation-gated hover tooltip
+ *  with the full subject (unreadable tasks on a narrow panel were the
+ *  report); fully visible subjects stay tooltip-free. */
 function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const { columns } = useTerminalSize()
+  const tab = React.useSyncExternalStore(subscribeTaskBoardTab, getTaskBoardTab)
+  const doing = tasks.filter(task => task.status !== 'completed')
+  const finished = tasks.filter(task => task.status === 'completed')
   // Row chrome: padding 1 + glyph column 2 + one cell of separation. The
   // owner/blocked/warning tail is variable; the slack keeps the gate honest
   // (a tooltip that repeats visible text is noise, one that misses a cut
   // subject defeats the ask — under-reporting the budget errs visible).
   const subjectBudget = Math.max(8, columns - 6)
+  const rows = tab === 'doing' ? doing : finished
+  const tabButton = (key: TaskBoardTab, label: string, count: number) => {
+    const active = tab === key
+    return (
+      <Box flexShrink={0} onClick={() => { setTaskBoardTab(key) }}>
+        <Text bold={active} color={active ? 'accent' : undefined} dimColor={!active} underline={active}>
+          {` ${label} ${count} `}
+        </Text>
+      </Box>
+    )
+  }
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Text dimColor wrap="truncate-end">{t('team-tasks-title', teamTaskProgress(tasks))}</Text>
-      {tasks.length === 0 && <Text dimColor>{'  ' + t('team-tasks-empty')}</Text>}
-      {tasks.map(task => (
+      <Box flexDirection="row">
+        <Text dimColor>{t('team-tasks-label')}</Text>
+        {tabButton('doing', t('team-tasks-tab-doing'), doing.length)}
+        {tabButton('finished', t('team-tasks-tab-finished'), finished.length)}
+      </Box>
+      {rows.length === 0 && (
+        <Text dimColor>{'  ' + t(tab === 'doing' ? 'team-tasks-doing-empty' : 'team-tasks-finished-empty')}</Text>
+      )}
+      {rows.map(task => (
         <Box key={task.id} flexDirection="row" paddingLeft={1}>
           <Box flexShrink={0} marginRight={1}><Text color={TASK_GLYPH[task.status].color}>{TASK_GLYPH[task.status].glyph}</Text></Box>
           <TooltipTarget content={() => stringWidth(task.subject) > subjectBudget ? task.subject : ''}>
@@ -266,7 +288,14 @@ export function SubagentDashboard({
       onToggleCleared()
       return
     }
-    
+
+    // t = switch the task board between Doing and Finished.
+    if (input.toLowerCase() === 't') {
+      event.stopImmediatePropagation()
+      toggleTaskBoardTab()
+      return
+    }
+
     // Consume all input while dashboard is open
     event.stopImmediatePropagation()
   }, { isActive: !panelMode })
@@ -290,6 +319,12 @@ export function SubagentDashboard({
     if (isPanelPlainReturn(input, key)) {
       const selected = entries[focusIndex]?.subagent
       if (selected !== undefined) onSelect?.(selected.agentId)
+      return true
+    }
+
+    // t = switch the task board between Doing and Finished.
+    if (input.toLowerCase() === 't') {
+      toggleTaskBoardTab()
       return true
     }
 

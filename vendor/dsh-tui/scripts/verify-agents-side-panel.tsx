@@ -70,6 +70,7 @@ const interrupted: string[] = []
 const channel = {
   get version() { return channelVersion },
   get subagents() { return subagents },
+  get team() { return teamFixture },
   // jobs 面板默认启用，适配器读名册（jobs.length 摘要）
   backgroundJobs: [] as unknown[],
   subagentControl: {
@@ -87,6 +88,10 @@ function setSubagents(next: FakeSubagent[]): void {
   channelVersion += 1
   for (const listener of [...channelListeners]) listener()
 }
+
+/** Team fixture for the task-board sections (undefined keeps the older
+ *  subagent-only sections untouched). */
+let teamFixture: unknown = undefined
 
 const NOW = Date.now()
 function agent(id: string, description: string, status: string, extra: Partial<FakeSubagent> = {}): FakeSubagent {
@@ -380,6 +385,59 @@ try {
   check('clear: show brings the folded agent back', has('AAA2') && has('c hide'))
   clearStore.toggleAgentsClearedVisible()
   clearStore.scopeAgentsCleared('__probe_done__')
+
+  // --- 13. DST Comet: the task board splits into Doing / Finished tabs ----
+  const tabStore = await import('../src/components/sidePanel/taskBoardTab.js')
+  tabStore.setTaskBoardTab('doing')
+  teamFixture = {
+    leadSessionId: 'sess-lead',
+    members: [{ id: 'sess-lead', name: 'lead', role: 'lead', phase: 'active' }],
+    tasks: [
+      { id: 't1', revision: 1, subject: 'DOING-TASK-ONE', description: '', status: 'in_progress', blockedBy: [], writeScopes: [], writeScopeWarnings: [], ownerName: 'scout', ready: true },
+      { id: 't2', revision: 1, subject: 'DOING-TASK-BLOCKED', description: '', status: 'pending', blockedBy: ['t1'], writeScopes: [], writeScopeWarnings: [], ready: false },
+      { id: 't3', revision: 1, subject: 'DONE-TASK-ONE', description: '', status: 'completed', blockedBy: [], writeScopes: [], writeScopeWarnings: [], ownerName: 'scout' },
+      { id: 't4', revision: 1, subject: 'DONE-TASK-TWO', description: '', status: 'completed', blockedBy: [], writeScopes: [], writeScopeWarnings: [] },
+    ],
+  }
+  channelVersion += 1
+  for (const listener of [...channelListeners]) listener()
+  await settled(() => has('Doing 2') && has('Finished 2'))
+  check('tasks: tab row shows both tabs with counts', has('Doing 2') && has('Finished 2') && has('Tasks'))
+  check('tasks: Doing is the default tab and hides finished rows',
+    has('DOING-TASK-ONE') && has('DOING-TASK-BLOCKED') && !has('DONE-TASK-ONE'))
+  check('tasks: the blocked tail renders on the Doing tab', has('blocked'))
+  // (owner tails need columns >= 40; this harness's panel is narrower, so
+  // they are correctly absent here — the doing-row subject itself is pinned
+  // by the default-tab check above.)
+  await writeKey('t')
+  await settled(() => has('DONE-TASK-ONE') && !has('DOING-TASK-ONE'))
+  check('tasks: t switches to Finished and shows completed rows',
+    has('DONE-TASK-ONE') && has('DONE-TASK-TWO') && !has('DOING-TASK-ONE'))
+  const tabCell = findCell('Doing 2')
+  check('tasks: the Doing tab is on screen for the click path', tabCell !== null)
+  if (tabCell !== null) {
+    await writeKey('\x1b[<0;' + (tabCell.col + 1) + ';' + (tabCell.row + 1) + 'M')
+    await writeKey('\x1b[<0;' + (tabCell.col + 1) + ';' + (tabCell.row + 1) + 'm')
+    await settled(() => has('DOING-TASK-ONE') && !has('DONE-TASK-ONE'))
+    check('tasks: clicking the Doing tab switches back', has('DOING-TASK-ONE'))
+  }
+  teamFixture = {
+    leadSessionId: 'sess-lead',
+    members: [{ id: 'sess-lead', name: 'lead', role: 'lead', phase: 'active' }],
+    tasks: [
+      { id: 't5', revision: 1, subject: 'DOING-ONLY-TASK', description: '', status: 'pending', blockedBy: [], writeScopes: [], writeScopeWarnings: [], ready: true },
+    ],
+  }
+  channelVersion += 1
+  for (const listener of [...channelListeners]) listener()
+  await settled(() => has('Doing 1') && has('Finished 0'))
+  await writeKey('t')
+  await settled(() => has('Nothing finished yet') && !has('DOING-ONLY-TASK'))
+  check('tasks: an empty Finished tab says so', has('Nothing finished yet'))
+  tabStore.setTaskBoardTab('doing')
+  teamFixture = undefined
+  channelVersion += 1
+  for (const listener of [...channelListeners]) listener()
 } finally {
   // 失败时把最后一帧打给 stderr：CI 日志里能直接看到断言看到的那一屏。
   if (failed > 0) dumpScreen()

@@ -4,6 +4,16 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — task-board Doing/Finished tabs (user request)
+
+| File | Why |
+|---|---|
+| `src/components/sidePanel/taskBoardTab.ts` (new) | module-level Doing/Finished tab store for the Agents-panel task section (survives panel switches; `t` toggles) |
+| `src/components/SubagentDashboard.tsx` | the task board renders two clickable tabs with counts (`Doing n` / `Finished n`) instead of one ever-growing list the user could not read or clear; Doing = pending/in-progress (blocked tail included), Finished = completed (dim subject, owner tail at width ≥ 40); `t` toggles in both the overlay and panel key paths; tooltips preserved |
+| `src/i18n.ts` | `team-tasks-label`, `team-tasks-tab-doing/-finished`, `team-tasks-doing/-finished-empty` replace the dead `team-tasks-title`/`team-tasks-empty` |
+| `scripts/verify-agents-side-panel.tsx` | team fixture + 7 tab checks (default tab, counts, blocked tail, `t` switch, SGR click switch, empty-Finished state) |
+| `src/components/messages/FinalSummaryRow.tsx` | docblock only — the summary row already paints no standing background (selection highlight aside); comment now states that contract |
+
 ## 2026-10-27 — final summary stays where it streamed (in-place, no lift)
 
 | File | Why |

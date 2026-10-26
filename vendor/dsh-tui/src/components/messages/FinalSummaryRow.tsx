@@ -1,11 +1,15 @@
 /**
  * DST Comet final-summary row: the settled assistant answer of a turn that
- * used tools is lifted to the top of that turn's workflow and rendered
- * ALWAYS EXPANDED (`✓ Final summary` header + the full Markdown body) — the
- * answer is the deliverable the user watches for, so it never folds behind a
- * `▸` while the tool cards and thinking blocks stay collapsible. The
- * transcript itself keeps the original session-event order, this is a
- * display lift (see MessageList's `promoteFinalSummaries`).
+ * used tools is DECORATED IN PLACE at the end of that turn — where it
+ * streamed — and renders ALWAYS EXPANDED (`✓ Final summary` header + the
+ * full Markdown body). The answer is the deliverable the user watches for,
+ * so it never folds behind a `▸` while the tool cards and thinking blocks
+ * stay collapsible, and it never moves (relocating it teleported the text
+ * out of the viewport on long turns). The transcript keeps the original
+ * session-event order; see MessageList's `promoteFinalSummaries`.
+ *
+ * No standing background: plain text on the transcript, only the row's
+ * message-selection highlight may paint (isSelected).
  */
 import React from 'react'
 import { Box, Text } from '../../ui.js'
