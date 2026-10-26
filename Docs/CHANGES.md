@@ -4,6 +4,18 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — team-message mark fix (font-safe arrow)
+
+| File | Why |
+|---|---|
+| `src/components/messages/TeamMessageBubble.tsx` | the `✉` envelope mark renders as a white blob in common Windows terminal fonts and sat tight against the sender name — replaced with the font-safe `←` glyph (U+2190), body hanging indent follows |
+| `scripts/verify-team-message-bubble.tsx` | pins the `← <sender> → Lead · team message` line |
+
+Install-state note: the Constellation MCP entry's `serverName` changed
+`playwright` → `constellation` (user preference — tool names now read
+`mcp__constellation__*`). Renaming mid-session hot-swaps the tool list, so
+sessions started before the rename must re-list tools (fresh boots are fine).
+
 ## 2026-10-26 — mother-view clarity pass (live-run feedback)
 
 | File | Why |

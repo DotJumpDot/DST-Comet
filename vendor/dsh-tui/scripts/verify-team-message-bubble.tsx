@@ -1,6 +1,6 @@
 /**
  * Agent Teams peer-message bubble (src/components/messages/TeamMessageBubble.tsx,
- * issue #1241): a `✉ <sender> · team message` line, then the body with a
+ * issue #1241): a `← <sender> · team message` line, then the body with a
  * hanging indent that holds under wrapping — at a normal and a narrow
  * terminal width, with a wide-character sender and body, and inside a column
  * narrower than the terminal (a child scene's padded page beside a rail).
@@ -71,7 +71,7 @@ async function frame(cols: number, sender: string, text: string, hosted = false,
     content ?? (hosted ? <Hosted>{node}</Hosted> : node),
     { stdout: new FakeStdout(), stdin: new FakeStdin(), stderr: new Sink(), exitOnCtrlC: false, patchConsole: false },
   )
-  await settled(() => viewportLines(term, rows).some((line: string) => line.includes('✉')))
+  await settled(() => viewportLines(term, rows).some((line: string) => line.includes('←')))
   const lines = viewportLines(term, rows).map((line: string) => line.trimEnd()).filter((line: string) => line !== '')
   instance.unmount()
   return lines
@@ -79,11 +79,11 @@ async function frame(cols: number, sender: string, text: string, hosted = false,
 
 try {
   const wide = await frame(80, 'reviewer', 'diff ok\nsecond line of the report')
-  check('sender line carries mark, name, direction and tag', wide[0] === '✉ reviewer → Lead · team message', JSON.stringify(wide[0]))
+  check('sender line carries mark, name, direction and tag', wide[0] === '← reviewer → Lead · team message', JSON.stringify(wide[0]))
   check('body lines hang under the sender', wide[1] === '  diff ok' && wide[2] === '  second line of the report', JSON.stringify(wide.slice(1)))
 
   const narrow = await frame(24, '审阅者', '这是一条需要在窄终端里换行的团队消息内容')
-  check('narrow: the sender line stays one row', narrow[0]?.startsWith('✉ 审阅者') === true, JSON.stringify(narrow[0]))
+  check('narrow: the sender line stays one row', narrow[0]?.startsWith('← 审阅者') === true, JSON.stringify(narrow[0]))
   const body = narrow.slice(1)
   check('narrow: the wrapped body keeps its indent', body.length > 1 && body.every(line => line.startsWith('  ') && !line.startsWith('   ')), JSON.stringify(body))
   check('narrow: no row overflows the terminal', narrow.every(line => width.stringWidth(line) <= 24), JSON.stringify(narrow))
@@ -112,7 +112,7 @@ try {
     <MessageList rows={chatRows} expanded={false} expandedRows={new Set()} selectedId={null} onToggleRow={() => {}}
       model="test" showAll onToggleAll={() => {}} historyPaintEnabled={false} scrollHandle={null}
       registerRowRef={() => {}} onTimeline={(next: Timeline) => { timeline = next }} />)
-  check('list: the peer row renders as its bubble', list.some(line => line.startsWith('✉ reviewer')), JSON.stringify(list))
+  check('list: the peer row renders as its bubble', list.some(line => line.startsWith('← reviewer')), JSON.stringify(list))
   const turns = (timeline as Timeline | null)?.turns.map(turn => turn.id)
   check('list: only the human prompt is a turn (rail, pinned header)', JSON.stringify(turns) === '[0]', JSON.stringify(turns))
 } finally {

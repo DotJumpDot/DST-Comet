@@ -13,10 +13,10 @@ type Props = {
   isSelected?: boolean
 }
 
-const MARK = '✉ '
+const MARK = '← '
 
 /**
- * An Agent Teams peer message delivered to this session: a `✉ <sender>` line
+ * An Agent Teams peer message delivered to this session: a `← <sender>` line
  * in the agent tint, then the body in plain text with a hanging indent — it
  * reads apart from the human's bold `❯` prompt it shares a log role with.
  * The body wraps in its own flex column, so it fits whatever column hosts it
