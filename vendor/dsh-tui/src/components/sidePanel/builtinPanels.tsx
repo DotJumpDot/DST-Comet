@@ -10,6 +10,7 @@ import { InfoPanel } from './InfoPanel.js'
 import { TrajectoryPanel } from './TrajectoryPanel.js'
 import { WorkspacePanel } from './WorkspacePanel.js'
 import { BtwPanelAdapter } from './btw/BtwPanelAdapter.js'
+import { HumanWallPanel } from './HumanWallPanel.js'
 import { panelStore } from './PanelStore.js'
 import { useSidePanelChannel } from './SidePanelRuntimeContext.js'
 import { usePanelInput } from './usePanelInput.js'
@@ -318,6 +319,20 @@ export function registerBuiltinPanels(): void {
     // 整屏对应物 = Ctrl+A 的 SubagentDashboard。
     capabilities: { scroll: true, fullscreen: true },
     component: AgentsPanelAdapter,
+  }, 'builtin')
+  // DST-Comet：人工墙队列。human_task_create 在任务板上镜像为 [human] …，
+  // 这里投影成固定的侧栏面板：滚动流不会把它冲走，done/failed/reply/
+  // 打开 URL / 跳到所属 Chrome 一个面板全收。只有提出问题的车道被停，
+  // 其余 agent 照常跑 —— 是队列，不是模态。
+  panelStore.register({
+    id: 'human',
+    titleKey: 'panel-title-human',
+    icon: '!',
+    order: 32,
+    source: 'builtin',
+    mountPolicy: 'enabled',
+    defaultEnabled: true,
+    component: HumanWallPanel,
   }, 'builtin')
   panelStore.register({
     id: 'info',

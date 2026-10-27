@@ -61,6 +61,7 @@ const EXPECTED: readonly { id: string; icon: string; fullscreen: boolean }[] = [
   { id: 'jobs', icon: '▸', fullscreen: true },
   { id: 'btw', icon: '?', fullscreen: true },
   { id: 'agents', icon: '◆', fullscreen: true },
+  { id: 'human', icon: '!', fullscreen: false },
   { id: 'workspace', icon: '⌗', fullscreen: true },
   { id: 'companion', icon: '♥', fullscreen: false },
 ]
