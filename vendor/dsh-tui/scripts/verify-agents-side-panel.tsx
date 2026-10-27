@@ -37,6 +37,9 @@ const [{ PassThrough, Writable }, React, { Terminal: XTerm }, ui, { SidePanelCol
 const { render, ThemeProvider, AlternateScreen, Box, Text, useInput } = ui
 const { applySidePanelOpen, applySidePanelRatio } = prefs
 const { settled } = termTest
+// The per-card auto-fold (run-5 §2) hides settled fixture cards 4s after they
+// appear; the gate pins "show cleared" so the whole roster stays assertable.
+const { toggleAgentsClearedVisible } = await import('../src/components/sidePanel/agentsPanelClear.js')
 
 const COLS = 120
 // 26 rows: the 4-row DST Comet brand header plus five compact agent cards
@@ -237,6 +240,7 @@ try {
   // --- 3. open the agents tab: dashboard renders inside the panel ----------
   openAgents?.()
   await settled(() => state().includes('active=agents') && has('AAA1'))
+  toggleAgentsClearedVisible()
   check('open: the dashboard renders in the split panel', has('AAA1') && has('AAA2') && has('AAA3'))
   check('open: summary line counts running', has('1 running'), (lines().find(l => l.includes('running')) ?? '').trim())
   check('open: the PanelBar carries the panel title', has('Agents'))

@@ -175,12 +175,16 @@ function AgentsPanelAdapter({ focused, visible }: PanelProps): React.ReactNode {
   const cleared = React.useSyncExternalStore(subscribeAgentsCleared, getAgentsCleared)
   const showCleared = React.useSyncExternalStore(subscribeAgentsCleared, getAgentsClearedVisible)
   React.useEffect(() => { scopeAgentsCleared(channel.sessionId) }, [channel.sessionId])
+  // DST Comet: settled cards fold per-card (run-5 advice §2). The old
+  // session-wide "nobody is running" gate meant the Mother's constant running
+  // state kept every finished workflow child, released lane, and failed probe
+  // on the board all run long. Each settled row gets its own timer (a new
+  // channel event must not reset another row's beat); `c` brings the folded
+  // rows back, and a row that starts again pops out of the fold via the
+  // memberRunning override in the dashboard.
+  const pendingFoldsRef = React.useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map())
   React.useEffect(() => {
     const team = channel.team
-    const busy = channel.status === 'running' ||
-      subagents.some(row => row.status === 'running' || row.status === 'starting') ||
-      (team?.members ?? []).some(member => member.phase === 'provisioning')
-    if (busy) return
     const ids = new Set<string>()
     for (const row of subagents) {
       if (row.status === 'completed' || row.status === 'failed' || row.status === 'cancelled' || row.status === 'unknown') {
@@ -188,17 +192,31 @@ function AgentsPanelAdapter({ focused, visible }: PanelProps): React.ReactNode {
       }
     }
     // A team's idle members are "done" only when its task board is finished:
-    // until then they are standing by for the next assignment.
+    // until then they are standing by for the next assignment. A failed member
+    // never runs again, so it folds like any settled row.
     const tasksDone = team !== undefined && team.tasks.length > 0 &&
       team.tasks.every(task => task.status === 'completed')
     if (tasksDone) {
       for (const member of team.members) if (member.role === 'teammate') ids.add(member.id)
     }
-    if (ids.size === 0) return
-    // Give the human a beat to read the finished roster before it folds.
-    const timer = setTimeout(() => clearAgents(ids), 4000)
-    return () => clearTimeout(timer)
-  }, [version, channel.sessionId, channel.status])
+    for (const member of team?.members ?? []) if (member.phase === 'failed') ids.add(member.id)
+    for (const id of ids) {
+      if (pendingFoldsRef.current.has(id)) continue
+      // Give the human a beat to read the finished row before it folds.
+      const timer = setTimeout(() => {
+        pendingFoldsRef.current.delete(id)
+        clearAgents([id])
+      }, 4000)
+      pendingFoldsRef.current.set(id, timer)
+    }
+  }, [version, channel.sessionId])
+  React.useEffect(() => {
+    const pending = pendingFoldsRef.current
+    return () => {
+      for (const timer of pending.values()) clearTimeout(timer)
+      pending.clear()
+    }
+  }, [channel.sessionId])
   const [route, setRoute] = React.useState<AgentsRoute>(lastAgentsRoute)
   React.useEffect(() => { lastAgentsRoute = route }, [route])
   // subagentControl.message 缺失 = 没有 composer 和消息流。可选链是给没有
