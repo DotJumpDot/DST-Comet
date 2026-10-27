@@ -33,6 +33,17 @@ const DISPLAY_KEYS: Readonly<Record<string, string>> = {
   team_task_list: 'tool-name-team-task',
   team_task_get: 'tool-name-team-task',
   team_task_update: 'tool-name-team-task',
+  // DST-Comet engine-fork tools: without a card each rendered as a raw
+  // capitalized id plus a JSON blob — the human-wall queue especially needs
+  // to be readable in the transcript.
+  human_task_create: 'tool-name-team-human-task',
+  human_task_list: 'tool-name-team-human-task',
+  human_task_wait: 'tool-name-team-human-task',
+  human_task_resolve: 'tool-name-team-human-task',
+  lane_freeze: 'tool-name-team-lane',
+  lane_resume: 'tool-name-team-lane',
+  team_snapshot: 'tool-name-team-snapshot',
+  release_teammate: 'tool-name-team-release',
 }
 
 /** The team's own delegation tool; its presence is what "team on" means to a request. */
@@ -80,6 +91,31 @@ function callTitle(name: string, args: Args): string | undefined {
       const owner = str(args.owner)
       return owner === undefined ? `${id} ${action}` : `${id} ${action} → ${owner}`
     }
+    case 'human_task_create': {
+      const title = str(args.title)
+      if (title === undefined) return undefined
+      const lane = str(args.lane)
+      const owner = str(args.owner)
+      return [lane === undefined ? undefined : `[${lane}]`, title, owner === undefined ? undefined : `park ${owner}`].filter(part => part !== undefined).join(' ')
+    }
+    case 'human_task_list':
+      return args.waiting_only === true ? 'waiting only' : undefined
+    case 'human_task_wait':
+      return str(args.task_id) ?? 'own task'
+    case 'human_task_resolve': {
+      const id = str(args.task_id)
+      const outcome = str(args.outcome)
+      return id === undefined || outcome === undefined ? undefined : `${id} · ${outcome}`
+    }
+    case 'lane_freeze':
+    case 'lane_resume': {
+      const target = str(args.target)
+      if (target === undefined) return undefined
+      const note = str(args.note)
+      return note === undefined ? target : `${target} · ${firstLine(note)}`
+    }
+    case 'release_teammate':
+      return str(args.target)
     default:
       return undefined
   }
@@ -127,8 +163,12 @@ function resultLine(name: string, value: unknown): string | undefined {
       return members.length === value.length ? members.join(' · ') : undefined
     }
     case 'wait_agent':
-      if (!isRecord(value) || typeof value.timedOut !== 'boolean') return undefined
+      if (!isRecord(value)) return undefined
       if (value.noProgress) return 'noProgress'
+      if (typeof value.timedOut !== 'boolean') return undefined
+      if (value.user_input === true) return 'user input arrived'
+      if (value.inbox_message === true) return 'peer message arrived'
+      if (value.interrupted === true) return 'interrupted'
       return value.timedOut ? 'timedOut' : 'changed'
     case 'interrupt_agent':
       return isRecord(value) ? str(value.previousStatus) : undefined
@@ -142,9 +182,59 @@ function resultLine(name: string, value: unknown): string | undefined {
     case 'team_task_get':
     case 'team_task_update':
       return isRecord(value) ? taskLine(value) : undefined
+    case 'human_task_create': {
+      if (!isRecord(value) || !isRecord(value.task)) return undefined
+      return humanTaskLine(value.task)
+    }
+    case 'human_task_list': {
+      if (!isRecord(value) || !Array.isArray(value.tasks)) return undefined
+      const lines = value.tasks.map(task => (isRecord(task) ? humanTaskLine(task) : undefined))
+      if (lines.includes(undefined)) return undefined
+      const frozen = Array.isArray(value.frozenLanes) ? value.frozenLanes.length : 0
+      return [...(lines as string[]), ...(frozen > 0 ? [`${frozen} frozen lane(s)`] : [])].join('\n')
+    }
+    case 'human_task_wait':
+      if (!isRecord(value)) return undefined
+      if (value.timedOut === true) return 'timedOut'
+      if (isRecord(value.woke) && str(value.woke.task_id) !== undefined)
+        return `woke ${String(value.woke.task_id)} · ${String(value.woke.outcome ?? '')}`.trimEnd()
+      return undefined
+    case 'human_task_resolve':
+      if (!isRecord(value) || value.resolved !== true) return undefined
+      return [
+        'resolved',
+        value.notified_member === true ? 'member woken' : undefined,
+        value.board_completed === true ? 'mirror completed' : undefined,
+      ].filter(part => part !== undefined).join(' · ')
+    case 'lane_freeze':
+    case 'lane_resume':
+      if (!isRecord(value) || str(value.member) === undefined || str(value.state) === undefined) return undefined
+      return `${String(value.member)} · ${String(value.state)}`
+    case 'team_snapshot': {
+      if (!isRecord(value) || !Array.isArray(value.members)) return undefined
+      const members = value.members.flatMap(member => (isRecord(member) && str(member.target) !== undefined && str(member.status) !== undefined
+        ? [`${String(member.target)} ${String(member.status)}` + (member.waitingOnHuman !== undefined ? ' ⚠human' : '') + (member.frozen !== undefined ? ' ❄frozen' : '')]
+        : []))
+      if (members.length !== value.members.length) return undefined
+      const open = typeof value.openHumanTasks === 'number' ? value.openHumanTasks : 0
+      const frozen = typeof value.frozenLanes === 'number' ? value.frozenLanes : 0
+      return [...members, ...(open > 0 || frozen > 0 ? [`${open} human · ${frozen} frozen`] : [])].join('\n')
+    }
+    case 'release_teammate':
+      if (!isRecord(value) || value.released !== true || str(value.member) === undefined) return undefined
+      return `${String(value.member)} released${value.stopped_live_child === true ? ' (live session stopped)' : ''}`
     default:
       return undefined
   }
+}
+
+/** One human task row: `ht-… · waiting · [lane]`. */
+function humanTaskLine(task: Args): string | undefined {
+  const id = str(task.id)
+  const status = str(task.status)
+  if (id === undefined || status === undefined) return undefined
+  const lane = str(task.lane)
+  return `${id} · ${status}${lane === undefined ? '' : ` · [${lane}]`}`
 }
 
 /**

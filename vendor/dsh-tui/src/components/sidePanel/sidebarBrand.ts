@@ -20,6 +20,12 @@ export const SIDEBAR_LOGO_VARIANTS = ['whaleGirl', 'whale', 'none'] as const
  *  beside the two-line wordmark, so the character keeps its face detail. */
 export const SIDEBAR_BRAND_ROWS = 8
 
+/** Large bottom-placement sprite rows (28×20 pixels = 10 text rows). The
+ *  panel foot has no wordmark beside the art, so a wider panel buys straight
+ *  resolution (user ask 2026-10-27: the sidebar sample read low-pixel next
+ *  to the chat column's whale girl). */
+export const SIDEBAR_BRAND_ROWS_LARGE = 10
+
 /** Breathing row between the mascot block and the panel bar. */
 export const SIDEBAR_BRAND_GAP = 1
 
@@ -36,10 +42,13 @@ export function sidebarBrandRows(terminalRows: number, panelWidth = 0, position:
     : 2 + SIDEBAR_BRAND_GAP
 }
 
-/** Mascot text rows for the bottom placement: the full 8-row sprite on a
- *  roomy terminal, the compact 2-row strip on a short one. */
-export function sidebarMascotRows(terminalRows: number): number {
-  return terminalRows >= 30 ? SIDEBAR_BRAND_ROWS : 2
+/** Mascot text rows for the bottom placement: the large 28×20 sprite on a
+ *  tall + wide panel, the regular 8-row sprite on a roomy terminal, the
+ *  compact 2-row strip on a short one. Width 0 (caller unknown) keeps the
+ *  regular sizes so existing probes stay meaningful. */
+export function sidebarMascotRows(terminalRows: number, panelWidth = 0): number {
+  if (terminalRows < 30) return 2
+  return panelWidth >= 32 ? SIDEBAR_BRAND_ROWS_LARGE : SIDEBAR_BRAND_ROWS
 }
 
 const PREFS_FILE = join(DATA_DIR, 'sidebar-logo.json')

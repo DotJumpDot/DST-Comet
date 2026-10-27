@@ -16,8 +16,14 @@ type Rgb = readonly [number, number, number]
 
 /** Logo box width in cells (the header's text column starts one cell after). */
 export const SIDEBAR_LOGO_COLS = 22
+/** Large bottom-placement width: the whale girl is 30×30, and the user asked
+ *  for more pixel than the 22-col head-mode sample — 28 cols keeps most of
+ *  the face while still fitting a 32-col panel. */
+export const SIDEBAR_LOGO_COLS_LARGE = 28
 /** Sprite pixel rows; half-block rendering packs two into one text row. */
 const LOGO_PIXEL_ROWS = 16
+/** Large sprite pixel rows (10 text rows). */
+const LOGO_PIXEL_ROWS_LARGE = 20
 /** Short-terminal strip: 4 pixel rows = 2 text rows. */
 const COMPACT_PIXEL_ROWS = 4
 
@@ -57,14 +63,15 @@ function sampleSprite(
   cols: number,
   rows: number,
   targetPixelRows: number,
+  targetCols: number,
   get: (x: number, y: number) => Rgb | undefined,
 ): (x: number, y: number) => Rgb | undefined {
   const box = boundsOf(cols, rows, get)
   const spanX = box.x1 - box.x0 + 1
   const spanY = box.y1 - box.y0 + 1
   const regionX = (x: number): readonly [number, number] => {
-    const start = box.x0 + Math.floor(x * spanX / SIDEBAR_LOGO_COLS)
-    const end = box.x0 + Math.floor((x + 1) * spanX / SIDEBAR_LOGO_COLS)
+    const start = box.x0 + Math.floor(x * spanX / targetCols)
+    const end = box.x0 + Math.floor((x + 1) * spanX / targetCols)
     return [start, Math.max(start + 1, end)]
   }
   const regionY = (y: number): readonly [number, number] => {
@@ -98,36 +105,44 @@ function sampleSprite(
   }
 }
 
-function whaleGirlGrid(targetPixelRows: number): (x: number, y: number) => Rgb | undefined {
-  return sampleSprite(30, 30, targetPixelRows, (x, y) => WHALE_GIRL_SPRITE[y]?.[x] ?? undefined)
+function whaleGirlGrid(targetPixelRows: number, targetCols: number): (x: number, y: number) => Rgb | undefined {
+  return sampleSprite(30, 30, targetPixelRows, targetCols, (x, y) => WHALE_GIRL_SPRITE[y]?.[x] ?? undefined)
 }
 
-function whaleGrid(targetPixelRows: number): (x: number, y: number) => Rgb | undefined {
+function whaleGrid(targetPixelRows: number, targetCols: number): (x: number, y: number) => Rgb | undefined {
   const frame = WHALE_FRAMES[0]?.rows ?? []
   const width = frame.reduce((max, row) => Math.max(max, row.length), 0)
-  return sampleSprite(width, frame.length, targetPixelRows, (x, y) => {
+  return sampleSprite(width, frame.length, targetPixelRows, targetCols, (x, y) => {
     const letter = frame[y]?.[x]
     return letter === undefined || letter === '.' ? undefined : WHALE_PALETTE[letter]
   })
 }
 
-const WHALE_GIRL_GRID = whaleGirlGrid(LOGO_PIXEL_ROWS)
-const WHALE_GIRL_COMPACT_GRID = whaleGirlGrid(COMPACT_PIXEL_ROWS)
-const WHALE_GRID = whaleGrid(LOGO_PIXEL_ROWS)
-const WHALE_COMPACT_GRID = whaleGrid(COMPACT_PIXEL_ROWS)
+const WHALE_GIRL_GRID = whaleGirlGrid(LOGO_PIXEL_ROWS, SIDEBAR_LOGO_COLS)
+const WHALE_GIRL_COMPACT_GRID = whaleGirlGrid(COMPACT_PIXEL_ROWS, SIDEBAR_LOGO_COLS)
+const WHALE_GRID = whaleGrid(LOGO_PIXEL_ROWS, SIDEBAR_LOGO_COLS)
+const WHALE_COMPACT_GRID = whaleGrid(COMPACT_PIXEL_ROWS, SIDEBAR_LOGO_COLS)
+const WHALE_GIRL_GRID_LARGE = whaleGirlGrid(LOGO_PIXEL_ROWS_LARGE, SIDEBAR_LOGO_COLS_LARGE)
+const WHALE_GRID_LARGE = whaleGrid(LOGO_PIXEL_ROWS_LARGE, SIDEBAR_LOGO_COLS_LARGE)
 
 const WHALE_GIRL_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS, LOGO_PIXEL_ROWS, WHALE_GIRL_GRID)
 const WHALE_GIRL_COMPACT_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS, COMPACT_PIXEL_ROWS, WHALE_GIRL_COMPACT_GRID)
 const WHALE_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS, LOGO_PIXEL_ROWS, WHALE_GRID)
 const WHALE_COMPACT_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS, COMPACT_PIXEL_ROWS, WHALE_COMPACT_GRID)
+const WHALE_GIRL_LARGE_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS_LARGE, LOGO_PIXEL_ROWS_LARGE, WHALE_GIRL_GRID_LARGE)
+const WHALE_LARGE_ROWS: readonly string[] = renderCellRows(SIDEBAR_LOGO_COLS_LARGE, LOGO_PIXEL_ROWS_LARGE, WHALE_GRID_LARGE)
 
-/** One mascot as Ink rows; the caller owns the click/hover wrapper. */
-export function SidebarMascot({ variant, compact = false }: { variant: 'whaleGirl' | 'whale'; compact?: boolean }): React.ReactNode {
+/** One mascot as Ink rows; the caller owns the click/hover wrapper. `large`
+ *  is the bottom-placement render (28×20 pixels = 10 text rows) — the panel
+ *  foot has room the header's side-by-side layout does not. */
+export function SidebarMascot({ variant, compact = false, size = 'regular' }: { variant: 'whaleGirl' | 'whale'; compact?: boolean; size?: 'regular' | 'large' }): React.ReactNode {
   const rows = compact
     ? (variant === 'whale' ? WHALE_COMPACT_ROWS : WHALE_GIRL_COMPACT_ROWS)
-    : (variant === 'whale' ? WHALE_ROWS : WHALE_GIRL_ROWS)
+    : size === 'large'
+      ? (variant === 'whale' ? WHALE_LARGE_ROWS : WHALE_GIRL_LARGE_ROWS)
+      : (variant === 'whale' ? WHALE_ROWS : WHALE_GIRL_ROWS)
   return (
-    <Box flexDirection="column" width={SIDEBAR_LOGO_COLS} flexShrink={0} overflow="hidden">
+    <Box flexDirection="column" width={size === 'large' && !compact ? SIDEBAR_LOGO_COLS_LARGE : SIDEBAR_LOGO_COLS} flexShrink={0} overflow="hidden">
       {rows.map((row, index) => (
         <Text key={index} wrap="truncate-end">{row}</Text>
       ))}

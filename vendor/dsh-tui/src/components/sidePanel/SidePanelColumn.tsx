@@ -15,7 +15,7 @@ import { PanelHost } from './PanelHost.js'
 import { panelStore } from './PanelStore.js'
 import { registerBuiltinPanels } from './builtinPanels.js'
 import type { SidePanelController } from './useSidePanel.js'
-import { SIDEBAR_BRAND_GAP, SIDEBAR_BRAND_ROWS, cycleSidebarLogo, getSidebarLogo, sidebarBrandRows, sidebarMascotRows, subscribeSidebarLogo } from './sidebarBrand.js'
+import { SIDEBAR_BRAND_GAP, SIDEBAR_BRAND_ROWS, SIDEBAR_BRAND_ROWS_LARGE, cycleSidebarLogo, getSidebarLogo, sidebarBrandRows, sidebarMascotRows, subscribeSidebarLogo } from './sidebarBrand.js'
 
 registerBuiltinPanels()
 
@@ -162,11 +162,15 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
   const brandRows = sidebarBrandRows(rows, width, sidebarLogoPosition)
   // Bottom mascot placement: the mascot occupies its own rows above the
   // bottom rule (one breathing row between host and mascot), so the panel
-  // host yields exactly those rows. Hidden logos and narrow panels (<42
-  // cols) keep the rows — same rule as the header placement.
+  // host yields exactly those rows. The bottom placement has no wordmark
+  // beside the art, so it fits from 26 columns up — the old 42-col gate
+  // hid the mascot on every default-width panel (user ask 2026-10-27),
+  // which read as "whalegirl disappeared". A 32-col+ panel renders the
+  // large 28×20 sprite.
   const logo = React.useSyncExternalStore(subscribeSidebarLogo, getSidebarLogo)
-  const bottomMascot = sidebarLogoPosition === 'bottom' && logo !== 'none' && width >= 42
-  const mascotRows = sidebarMascotRows(rows)
+  const bottomMascot = sidebarLogoPosition === 'bottom' && logo !== 'none' && width >= 26
+  const mascotRows = sidebarMascotRows(rows, width)
+  const mascotLarge = mascotRows >= SIDEBAR_BRAND_ROWS_LARGE
   const hostHeight = Math.max(1, rows - (brandRows + 4) - (bottomMascot ? mascotRows + 1 : 0))
   return (
     <Box flexDirection="column" width={width} flexGrow={1}>
@@ -210,7 +214,7 @@ export function SidePanelColumn({ width, controller, channel, activity, attentio
               cycleSidebarLogo()
             }}
           >
-            <SidebarMascot variant={logo === 'whale' ? 'whale' : 'whaleGirl'} compact={mascotRows < SIDEBAR_BRAND_ROWS} />
+            <SidebarMascot variant={logo === 'whale' ? 'whale' : 'whaleGirl'} compact={mascotRows < SIDEBAR_BRAND_ROWS} size={mascotLarge ? 'large' : 'regular'} />
           </Box>
         </>
       )}

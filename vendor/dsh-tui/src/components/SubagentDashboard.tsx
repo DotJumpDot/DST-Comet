@@ -114,9 +114,9 @@ const TASK_GLYPH: Record<TeamTask['status'], { readonly glyph: string; readonly 
 
 /** The team's shared task board, read-only, split into Doing / Finished tabs
  *  (DST Comet: one ever-growing list buried live work under completed rows
- *  the user could not clear). The tab row uses the house chip style from
- *  SubagentDetailScene (`inverse` active chip, dim `│` separator) so it
- *  reads as tabs, not as links after a label. Rows keep the
+ *  the user could not clear). The tab chips live in the panel FOOTER (user
+ *  UX feedback 2026-10-27: a chip header sitting between the roster and the
+ *  task rows read as a stray label mid-list); rows keep the
  *  truncation-gated hover tooltip with the full subject. */
 function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const { columns } = useTerminalSize()
@@ -129,27 +129,8 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
   // subject defeats the ask — under-reporting the budget errs visible).
   const subjectBudget = Math.max(8, columns - 6)
   const rows = tab === 'doing' ? doing : finished
-  const tabChip = (key: TaskBoardTab, glyph: string, label: string, count: number): React.ReactNode => {
-    const active = tab === key
-    return (
-      <React.Fragment key={key}>
-        <Box flexShrink={0} onClick={() => { setTaskBoardTab(key) }}>
-          <Text
-            color={active ? 'accent' : undefined}
-            bold={active}
-            inverse={active}
-          >{` ${glyph} ${label} ${count} `}</Text>
-        </Box>
-        <Text dimColor>{key === 'doing' ? '│' : ''}</Text>
-      </React.Fragment>
-    )
-  }
   return (
     <Box flexDirection="column" marginTop={1}>
-      <Box flexDirection="row">
-        {tabChip('doing', '◐', t('team-tasks-tab-doing'), doing.length)}
-        {tabChip('finished', '●', t('team-tasks-tab-finished'), finished.length)}
-      </Box>
       {rows.length === 0 && (
         <Text dimColor>{'  ' + t(tab === 'doing' ? 'team-tasks-doing-empty' : 'team-tasks-finished-empty')}</Text>
       )}
@@ -172,6 +153,37 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
           )}
         </Box>
       ))}
+    </Box>
+  )
+}
+
+/** Doing / Finished tab chips for the Agents footer (house chip style from
+ *  SubagentDetailScene: `inverse` active chip with its status glyph, dim `│`
+ *  separator). Rendered below the scroll area, next to the folded-agents
+ *  count, so the task list starts directly under the roster. */
+export function TaskBoardTabChips({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
+  const tab = React.useSyncExternalStore(subscribeTaskBoardTab, getTaskBoardTab)
+  const doing = tasks.filter(task => task.status !== 'completed').length
+  const finished = tasks.filter(task => task.status === 'completed').length
+  const tabChip = (key: TaskBoardTab, glyph: string, label: string, count: number): React.ReactNode => {
+    const active = tab === key
+    return (
+      <React.Fragment key={key}>
+        <Box flexShrink={0} onClick={() => { setTaskBoardTab(key) }}>
+          <Text
+            color={active ? 'accent' : undefined}
+            bold={active}
+            inverse={active}
+          >{` ${glyph} ${label} ${count} `}</Text>
+        </Box>
+        <Text dimColor>{key === 'doing' ? '│' : ''}</Text>
+      </React.Fragment>
+    )
+  }
+  return (
+    <Box flexDirection="row" paddingLeft={1}>
+      {tabChip('doing', '◐', t('team-tasks-tab-doing'), doing)}
+      {tabChip('finished', '●', t('team-tasks-tab-finished'), finished)}
     </Box>
   )
 }
@@ -490,19 +502,21 @@ export function SubagentDashboard({
         </ScrollBox>
       </Box>
 
-      {/* DST Comet: finished agents fold away when the work is done. One line
-          keeps the count and `c` (or a click) brings them back. */}
-      {clearedKnown.size > 0 && (
-        <Box
-          flexDirection="row"
-          marginTop={1}
-          paddingLeft={panelMode ? 1 : 0}
-          onClick={onToggleCleared}
-        >
-          <Text dimColor wrap="truncate-end">
-            {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
-            {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
-          </Text>
+      {/* DST Comet footer: the task-board tabs and the folded-agents count
+          live at the panel bottom (user UX feedback 2026-10-27: a chip row
+          between roster and task rows read as a stray header mid-list). The
+          task list itself starts directly under the roster. */}
+      {(visibleTeam !== undefined || clearedKnown.size > 0) && (
+        <Box flexDirection="column" marginTop={1} paddingLeft={panelMode ? 1 : 0} flexShrink={0}>
+          {visibleTeam !== undefined && <TaskBoardTabChips tasks={visibleTeam.tasks} />}
+          {clearedKnown.size > 0 && (
+            <Box flexDirection="row" onClick={onToggleCleared}>
+              <Text dimColor wrap="truncate-end">
+                {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
+                {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
+              </Text>
+            </Box>
+          )}
         </Box>
       )}
 

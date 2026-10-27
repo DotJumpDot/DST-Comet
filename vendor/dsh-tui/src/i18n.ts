@@ -1098,6 +1098,10 @@ const dict = {
   'tool-name-team-wait': { zh: '等待团队', en: 'Wait' },
   'tool-name-team-interrupt': { zh: '中断成员', en: 'Interrupt' },
   'tool-name-team-task': { zh: '任务板', en: 'Tasks' },
+  'tool-name-team-human-task': { zh: '人工墙', en: 'Human wall' },
+  'tool-name-team-lane': { zh: '车道', en: 'Lane' },
+  'tool-name-team-snapshot': { zh: '团队快照', en: 'Snapshot' },
+  'tool-name-team-release': { zh: '释放成员', en: 'Release' },
   'tool-name-web_search': { zh: '联网搜索', en: 'WebSearch' },
   'tool-name-multiedit': { zh: '多处编辑', en: 'MultiEdit' },
   'tool-name-notebookedit': { zh: '笔记本编辑', en: 'NotebookEdit' },
@@ -1891,6 +1895,36 @@ const dict = {
   'team-last-run-failed': { zh: '上一轮失败 {{error}}', en: 'last run failed {{error}}' },
   'team-task-blocked': { zh: '阻塞', en: 'blocked' },
   'team-failure': { zh: '团队记录被拒：{{failure}}', en: 'Team record rejected: {{failure}}' },
+
+  // ── DST-Comet：人工墙面板（human_task_create 的任务板镜像投影）──
+  'panel-title-human': { zh: '人工墙', en: 'Human wall' },
+  'human-wall-empty': {
+    zh: '没有等待你的请求 —— 验证码 / 登录 / 邮件验证码排队到这里。',
+    en: 'No asks waiting for you — captcha / login / email-code walls queue here.',
+  },
+  'human-wall-done-when': { zh: '完成条件：{{done}}', en: 'done when: {{done}}' },
+  'human-wall-not-parked': { zh: '（仅记录 —— 没有车道被暂停）', en: '(tracked ask — no lane is parked)' },
+  'human-wall-done-unavailable': { zh: '（无记录的完成条件）', en: '(no recorded post-condition)' },
+  'human-wall-attached': { zh: '已把「{{title}}」附到输入框', en: 'Attached "{{title}}" to the chat draft' },
+  'human-wall-context-heading': { zh: '人工墙：{{title}}', en: 'Human wall: {{title}}' },
+  'human-wall-context-done': { zh: '完成条件：{{done}}', en: 'done when: {{done}}' },
+  'human-wall-action-done': { zh: 'd 完成', en: 'd done' },
+  'human-wall-action-failed': { zh: 'f 失败', en: 'f failed' },
+  'human-wall-action-reply': { zh: 'm 回复', en: 'm reply' },
+  'human-wall-action-open': { zh: 'o 打开', en: 'o open' },
+  'human-wall-action-chrome': { zh: 'w Chrome', en: 'w chrome' },
+  'human-wall-hint': {
+    zh: '↑↓ 选择 · ⏎ 展开 · d 完成 · f 失败 · m 回复 · o 打开链接 · w 跳到所属 Chrome',
+    en: '↑↓ select · ⏎ expand · d done · f failed · m reply · o open url · w focus chrome',
+  },
+  'human-wall-resolve-done': {
+    zh: '人工墙：任务 {{id}}（“{{title}}”）我已完成（在面板点的 done）。请用 human_task_resolve 以 done 收尾，然后自己复核完成条件：{{done}}',
+    en: 'Human wall: task {{id}} ("{{title}}") is DONE — I completed it from the panel. Resolve it with human_task_resolve (outcome done), then re-verify the post-condition yourself: {{done}}',
+  },
+  'human-wall-resolve-failed': {
+    zh: '人工墙：任务 {{id}}（“{{title}}”）我做不了。请用 human_task_resolve 以 failed 收尾，再决定这条车道的下一步。',
+    en: 'Human wall: task {{id}} ("{{title}}") FAILED — I could not complete it. Resolve it with human_task_resolve (outcome failed), then decide the next step for the lane.',
+  },
 
   // ── /team：团队状态（开关是 /plugin enable|disable，见 docs/agent-teams-design.md「开关机制」）──
   'team-cmd-unavailable': { zh: '当前内核没有 Agent Teams。', en: 'The current kernel has no Agent Teams.' },
