@@ -4,6 +4,50 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — run-3 post-mortem: Human wall panel, instant steer, release_teammate, owner info tabs
+
+| File | Why |
+|---|---|
+| `engine/agent-team/src/types.ts` | new durable `team/member/released` event + `ReleaseTeammateRequest/Result` (the roster had no removal path — stale smoke members held 4 of 11 slots for a whole run) |
+| `engine/agent-team/src/projection.ts` | applies `team/member/released` (removes the member; owned tasks degrade to unowned, historical messages keep senderName); `TeamEventType` + `isTeamEvent` extended |
+| `engine/agent-team/src/journal.ts` | `MutableTeamEventType` widened for the released event |
+| `engine/agent-team/src/roster.ts` | `release()` (Lead-only, journal-first, best-effort child drain); the `TEAM_MEMBER_LIMIT` error now lists every member with its phase and names `release_teammate` |
+| `engine/agent-team/src/index.ts` | `TeamService.releaseTeammate` façade |
+| `engine/tool-agent-team/src/index.ts` | (1) `wait_agent` races the caller's inbox — user input during a wait wakes it instantly (`user_input`/`inbox_message`), with a pre-check that answers already-pending steering (the user had to Esc+resend before); (2) `release_teammate` tool; (3) `human_task_create {park:false, owner}` (the Lead queues for a lane without parking herself) + a `human-meta:` JSON footer in the board mirror the TUI parses; policy text updated |
+| `engine/tool-agent-team/src/human-tasks.ts` | `create` takes caller-supplied ids and a `parkMemberId` option (null = queue without parking) |
+| `engine/tool-agent-team/tests/tool-agent-team.spec.ts` | fake ctx grows inbox/`ctx.on`/`releaseTeammate`; 6 new tests (inbox wake both paths, pending-steer pre-check, release threading, park:false, owner-queues-for-lane, meta footer) — 20/20 |
+| `src/components/sidePanel/humanWall.ts` (new) | pure projection of `[human] …` board tasks into panel rows (steps, done_when, lane, preserve_url, park flag from the `human-meta:` footer) — session log stays the source of truth |
+| `src/components/sidePanel/HumanWallPanel.tsx` (new) | the Human wall panel (`!` tab): every ask pinned with full steps + done_when, `d` done / `f` failed / `m` reply / `o` open preserved URL / `w` jump to the owning Chrome window — resolve/reply ride `channel.submit`/`attachContext` (the TUI has no direct tool seam); badge counts open asks |
+| `src/utils/focusWindow.ts` (new) | activates the Chrome window whose title matches `[owner]` via PowerShell AppActivate (Constellation prefixes owner window titles) |
+| `src/components/sidePanel/builtinPanels.tsx` | registers the `human` panel (order 32, icon `!`) |
+| `src/tuiDisplayPrefs.ts` | `human` joins `DEFAULT_SIDE_PANEL_IDS` |
+| `src/i18n.ts` | human-wall panel strings (zh+en), `tool-name-team-human-task/-lane/-snapshot/-release` |
+| `scripts/verify-side-panel-registry.tsx` | EXPECTED list grows the `human` panel |
+| `scripts/verify-i18n.ts` | `human-wall-resolve-*` registered in DYNAMIC_PREFIXES (runtime-composed keys) |
+| `src/components/SubagentDashboard.tsx` | Doing/Finished tab chips moved from the task-board header to the panel FOOTER next to the folded-agents row (user feedback: a chip row between roster and task rows read as a stray header mid-list); task rows start directly under the roster; `TaskBoardTabChips` exported for the footer |
+| `src/components/sidePanel/SidebarMascot.tsx` | sampler parameterized by target width + a LARGE 28×20-pixel render (10 text rows) — the 22×16 sample read low-pixel next to the chat column's whale girl (user ask) |
+| `src/components/sidePanel/sidebarBrand.ts` | `SIDEBAR_BRAND_ROWS_LARGE` + `sidebarMascotRows(rows, width)` picks the large sprite on wide panels |
+| `src/components/sidePanel/SidePanelColumn.tsx` | bottom mascot gate 42→26 cols (the old gate hid the mascot on every default-width panel — the "whalegirl disappeared" report); large sprite at ≥32 cols on tall terminals |
+| `src/dsh-adapter/team-tools.ts` | compact cards for `human_task_*`, `lane_freeze/resume`, `team_snapshot`, `release_teammate` (raw JSON blobs before); `wait_agent` result line labels `user input arrived`/`peer message arrived`/`interrupted` |
+| `orchestra/BUG_BOUNTY_TEAM_PROTOCOL.md` | protocol v2: standing roster 6 + burst ≤4, lane lifecycle with release, per-owner browsers + info tabs, the human-wall loop, wait/steer rules |
+| `orchestra/TEAM_DESIGN_v2.md` (new) | the full v2 team design (roles, counts, who talks to whom, Lead sightlines, what shipped, what's next) |
+
+Companion Constellation-MCP commits (same round, separate repo): cookie
+handoff (`browser_cookies_export/import/list` — values stay server-side
+behind a 10-min id; the transcript sees only name/domain/flags), iframe
+support (`frame:` on click/type/select_option + `browser_frames_list` +
+`browser_set_files` with the filechooser path), `http_download` (metadata +
+sha only) + HTTP `auth {basic,bearer}` with `$secret:` values, mail fixes
+(alias matched client-side against To/Delivered-To/X-Original-To/
+X-Forwarded-To/subject/body because relays rewrite To:, `\All`
+special-use folder detection for localized Gmail, real error strings,
+`mail_get` with anchor text + manual-HEAD redirect resolution, `mail_status`,
+app-password internal-space strip), owner info tabs (first tab of every owner
+window: owner·job·engagement, not closable by tools, re-opened if the human
+closes it, `browser_owner_info` labels it), `browser_click {force,x,y}`,
+`browser_type {submit}` waits for navigation and reports navigated/no-nav.
+46 tools, 27/27 unit + MCP smoke.
+
 ## 2026-10-27 — tab chips + Mother wake-up (retest round)
 
 | File | Why |
