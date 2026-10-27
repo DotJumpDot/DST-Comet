@@ -39,16 +39,22 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
     // eslint-disable-next-line react-hooks/exhaustive-deps -- badge derives from the projected items
   }, [openCount, visible])
 
-  // The TUI cannot call engine tools directly: resolve/reply ride the normal
-  // user-message seam, which is exactly how the human answered these asks in
-  // chat before the panel existed (the Lead reads it and calls
-  // human_task_resolve, then re-verifies done_when itself).
+  // The TUI cannot call engine tools directly: resolve rides the user-message
+  // seam, which is exactly how the human answered these asks in chat before
+  // the panel existed (the Lead reads it and calls human_task_resolve, then
+  // re-verifies done_when itself). STEER, not submit (user ask 2026-10-27
+  // night): a submitted message parks as the Lead's next TURN — behind a
+  // mid-turn Mother it sat queued. Steer reaches a running Lead at its next
+  // STEP boundary (the same path a teammate send_message takes) and wakes a
+  // wait_agent instantly via the engine's inbox race.
   const resolve = (item: HumanWallItem, outcome: 'done' | 'failed'): void => {
-    channel.submit(t(`human-wall-resolve-${outcome}`, {
+    const text = t(`human-wall-resolve-${outcome}`, {
       id: item.humanId ?? item.id,
       title: item.title,
       done: item.doneWhen === '' ? t('human-wall-done-unavailable') : item.doneWhen,
-    }))
+    })
+    if (typeof channel.steer === 'function') channel.steer(text)
+    else channel.submit(text)
     setExpandedId(null)
   }
 

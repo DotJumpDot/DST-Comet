@@ -670,11 +670,20 @@ function HeaderTitle({ name, title, isTerminal, folded, displayArgs, argsLanguag
     )
   }
   if (title === undefined) {
+    // MCP cards (user ask 2026-10-27 night): a dim › between the prettified
+    // `MCP › Server › Tool` name and its args gives the JSON breathing room —
+    // `Scope Set › ({"engagement":…})` instead of `Scope Set({"engagement":…})`.
+    const mcpSeparator = name.startsWith('MCP › ') ? ' ›' : undefined
     return (
       <>
         <Box flexShrink={0}>
           <Text bold color={nameColor} wrap="truncate-end">{name}</Text>
         </Box>
+        {displayArgs !== '' && mcpSeparator !== undefined && (
+          <Box flexShrink={0}>
+            <Text dimColor>{mcpSeparator}</Text>
+          </Box>
+        )}
         {displayArgs !== '' && (
           <Box flexWrap="nowrap" {...headerTooltip}>
             <Text>(</Text>
