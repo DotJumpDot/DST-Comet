@@ -106,7 +106,7 @@ test('apply installs the full tool set including the DST-Comet additions', () =>
   }
   assert.equal(guards.length, 1, 'one pre-dispatch guard installed')
   const spawn = registered.find(row => row.name === 'spawn_teammate')!.definition
-  assert.deepEqual(Object.keys(spawn.parameters?.properties ?? {}), ['name', 'description', 'prompt', 'context', 'model', 'effort'])
+  assert.deepEqual(Object.keys(spawn.parameters?.properties ?? {}), ['name', 'description', 'prompt', 'context', 'model', 'provider', 'effort'])
 })
 
 test('spawn_teammate threads model/effort into agentOptions', async () => {
@@ -124,6 +124,25 @@ test('spawn_teammate threads model/effort into agentOptions', async () => {
   spawned.length = 0
   await spawn.execute({ name: 'scout', description: 'recon', prompt: 'go' }, exec(lead))
   assert.equal(spawned[0]!.agentOptions, undefined)
+})
+
+test('spawn_teammate threads a cross-provider route into agentOptions (run-5 §3)', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  const spawned: Array<Record<string, unknown>> = []
+  ctx.agentTeams.spawnTeammate = async (_caller: unknown, request: Record<string, unknown>) => {
+    spawned.push(request)
+    return { member: mateView }
+  }
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const spawn = registered.find(row => row.name === 'spawn_teammate')!.definition
+  await spawn.execute(
+    { name: 'consultant', description: 'second opinion', prompt: 'go', provider: 'zai', model: 'glm-5.3', effort: 'max' },
+    exec(lead),
+  )
+  assert.equal(spawned.length, 1)
+  // The LLM route rides agentOptions; the subagent backend stays the config default.
+  assert.deepEqual(spawned[0]!.agentOptions, { provider: 'zai', model: 'glm-5.3', reasoningEffort: 'max' })
+  assert.equal(spawned[0]!.provider, 'spawn')
 })
 
 test('human_task_create parks the caller, mirrors the board, guard enforces, resolve wakes', async () => {
@@ -402,4 +421,25 @@ test('wait_agent forwards the service wake reason (what moved, not just "changed
   const timeout = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
   assert.equal(timeout.timedOut, true)
   assert.equal(timeout.changed, undefined)
+})
+
+test('latestTurnFailure names the child Session route failure (run-5 §3)', async () => {
+  const { latestTurnFailure } = await import('../../agent-team/src/session-message.ts')
+  const turnEnd = (reason: Record<string, unknown>) => ({ type: 'turn/end', seq: 1, time: 0, data: { turn: 1, reason } })
+  const events: unknown[] = [
+    turnEnd({ kind: 'completed' }),
+    { type: 'user/message', seq: 2, time: 0, data: { id: 'm1' } },
+    turnEnd({ kind: 'error', error: { message: 'model "glm-5.3" is not registered on provider "zai"', code: 'MODEL_NOT_FOUND' } }),
+  ]
+  assert.equal(
+    latestTurnFailure(events as never),
+    'model "glm-5.3" is not registered on provider "zai" (MODEL_NOT_FOUND)',
+  )
+  assert.equal(
+    latestTurnFailure([turnEnd({ kind: 'error', error: { message: 'connect ECONNREFUSED 127.0.0.1:443', code: 'UNKNOWN' } })] as never),
+    'connect ECONNREFUSED 127.0.0.1:443',
+    'an UNKNOWN code stays bare',
+  )
+  assert.equal(latestTurnFailure([turnEnd({ kind: 'aborted', reason: { kind: 'user' } })] as never), undefined)
+  assert.equal(latestTurnFailure([] as never), undefined)
 })

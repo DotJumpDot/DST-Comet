@@ -29,3 +29,28 @@ export function messageAccepted(
   return events.some(event => event.type === 'user/message' && predicate(event.data))
     || pendingInboxMessages(events).some(predicate)
 }
+
+/** Diagnostics cap: a provider error can quote a whole request body. */
+const FAILURE_LIMIT = 300
+
+/**
+ * Latest durable turn failure from a Session event suffix, for teammate
+ * provisioning diagnostics (run-5 advice §3): "initial prompt was not durably
+ * accepted" alone hid whether the route failed on an unknown model, an auth
+ * rejection, or a provider limitation — the child Session records the real
+ * `turn/end` failure verbatim.
+ * @param events - one Session's non-inherited event suffix.
+ * @returns `"message (CODE)"` for the newest errored turn, or undefined.
+ */
+export function latestTurnFailure(events: readonly SessionEvent[]): string | undefined {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (event?.type !== 'turn/end') continue
+    const reason = event.data.reason
+    if (reason.kind !== 'error') continue
+    const { message, code } = reason.error
+    const line = code === 'UNKNOWN' || code === '' ? message : `${message} (${code})`
+    return line.length <= FAILURE_LIMIT ? line : `${line.slice(0, FAILURE_LIMIT)}…`
+  }
+  return undefined
+}

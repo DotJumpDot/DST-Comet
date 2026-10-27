@@ -12,7 +12,7 @@ import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
 import { readPersistedSession } from './persisted.ts'
 import type { TeamState } from './projection.ts'
-import { messageAccepted } from './session-message.ts'
+import { latestTurnFailure, messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
   ReleaseTeammateRequest,
@@ -396,8 +396,13 @@ export class TeamRoster {
         const stored = await readPersistedSession(this.ctx.sessionPersistence, childId, signal)
         const suffix = stored.events.slice(stored.inheritedEventCount)
         if (messageAccepted(suffix, message => message.id === messageId)) return
+        // Name the child Session's own failure when it recorded one (run-5
+        // advice §3): the bare checkpoint message hid unknown-model vs auth
+        // vs routing failures behind one generic line.
+        const failure = latestTurnFailure(suffix)
         throw new TeamError(
-          `teammate "${childId}" initial prompt was not durably accepted`,
+          `teammate "${childId}" initial prompt was not durably accepted`
+            + (failure === undefined ? '' : `: ${failure}`),
           'TEAM_PROVISIONING_CONFLICT',
         )
       }
@@ -456,7 +461,9 @@ export class TeamRoster {
           && acceptedInitialPrompt) {
           phase = 'active'
         } else {
+          const recorded = latestTurnFailure(suffix)
           failure = 'persisted child Session does not match the provisioned continuation'
+            + (recorded === undefined ? '' : `: ${recorded}`)
         }
       } catch (error: unknown) {
         failure = `child Session recovery failed: ${errorMessage(error)}`

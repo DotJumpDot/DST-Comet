@@ -46,7 +46,7 @@ Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VE
 
 Use the target returned by spawn_teammate or list_agents for send_message${interrupt ? ' and interrupt_agent' : ''}, or as owner when assigning or filtering shared tasks. send_message steers a running target at its nearest step boundary and starts or resumes an inactive target. inactive means no turn is executing; it does not describe task completion, success, failure, or waiting for other agents. provisioning means member creation is in progress; failed means member creation failed. A peer message starts with its sender name. A successful send does not mean the recipient has processed it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.
 
-DST-Comet additions: when only a human can advance a page (captcha, login, email code), call human_task_create with exact click-by-click steps and a done_when post-condition — the affected lane's further tool calls are then refused until any member resolves it, and human_task_wait blocks while you wait; after a resolve, re-verify done_when yourself in the preserved tab. The Team Lead can queue a step for a teammate with owner and stay running itself, and can track its own ask with park:false. The Team Lead parks a teammate between tool calls with lane_freeze / lane_resume instead of interrupting mid-call. release_teammate removes a finished or stale teammate, frees its member slot and name for a respawn — repurpose a lane with release + spawn instead of leaving dead members on the cap. team_snapshot returns the roster, per-member task load, and who waits on a human or is frozen in one call — prefer it after every wakeup. spawn_teammate accepts optional model and effort so recon can run on a cheap model and validation on a strong one. A wait_agent that returns user_input or inbox_message ended early because a message reached your own inbox — read the new message before waiting again.`
+DST-Comet additions: when only a human can advance a page (captcha, login, email code), call human_task_create with exact click-by-click steps and a done_when post-condition — the affected lane's further tool calls are then refused until any member resolves it, and human_task_wait blocks while you wait; after a resolve, re-verify done_when yourself in the preserved tab. The Team Lead can queue a step for a teammate with owner and stay running itself, and can track its own ask with park:false. The Team Lead parks a teammate between tool calls with lane_freeze / lane_resume instead of interrupting mid-call. release_teammate removes a finished or stale teammate, frees its member slot and name for a respawn — repurpose a lane with release + spawn instead of leaving dead members on the cap. team_snapshot returns the roster, per-member task load, and who waits on a human or is frozen in one call — prefer it after every wakeup. spawn_teammate accepts optional provider, model and effort so recon can run on a cheap model, validation on a strong one, and cross-provider consultants (provider+model, e.g. zai + glm-5.3) spawn as durable teammates; a route that fails provisioning surfaces the child session's underlying error in the member diagnostics. Context discipline: check context_status before long phases, and at a natural checkpoint update your state file FIRST, then call session_compact — compaction runs when your turn ends and the next turn starts condensed. A wait_agent that returns user_input or inbox_message ended early because a message reached your own inbox — read the new message before waiting again.`
 }
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
@@ -452,7 +452,11 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         },
         model: {
           type: 'string',
-          description: 'Optional per-teammate model id (cheap model for recon, strong one for validation). Routed through the spawn provider; unsupported routes fail provisioning.',
+          description: 'Optional per-teammate model id (cheap model for recon, strong one for validation). Unsupported routes fail provisioning with the child session error in the diagnostics.',
+        },
+        provider: {
+          type: 'string',
+          description: 'Optional LLM provider route for this teammate — cross-provider consultants (e.g. "zai" for glm-5.3). Must have a registered adapter at call time; an unknown route fails at the teammate\'s first model call and surfaces that error. Defaults to the session provider.',
         },
         effort: {
           type: 'string',
@@ -463,12 +467,12 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
-        const agentOptions = args.model === undefined && args.effort === undefined
-          ? undefined
-          : {
-              ...args.model === undefined ? {} : { model: args.model },
-              ...args.effort === undefined ? {} : { reasoningEffort: ReasoningEffortId(args.effort) },
-            }
+        const routeOptions = {
+          ...args.provider === undefined ? {} : { provider: args.provider },
+          ...args.model === undefined ? {} : { model: args.model },
+          ...args.effort === undefined ? {} : { reasoningEffort: ReasoningEffortId(args.effort) },
+        }
+        const agentOptions = Object.keys(routeOptions).length === 0 ? undefined : routeOptions
         const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
