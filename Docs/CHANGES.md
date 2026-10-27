@@ -4,6 +4,25 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-28 — run-5 asks: cross-provider spawn, real errors, per-card fold, live compaction tools
+
+| File | Why |
+|---|---|
+| `engine/tool-agent-team/src/index.ts` | `spawn_teammate` gains `provider` — cross-provider consultants spawn as durable teammates (route rides `agentOptions.provider`; the subagent backend stays `spawn`/`fork`); team policy tells members to use `context_status`/`session_compact` (run-5 §3/§7) |
+| `engine/agent-team/src/session-message.ts` | `latestTurnFailure` extracts the newest `turn/end` error (message + code, 300-char cap) from a persisted session suffix |
+| `engine/agent-team/src/roster.ts` | `checkpointInitialPrompt` + restart reconcile name the child session's real failure instead of the bare "not durably accepted" (run-5 §3) |
+| `engine/tool-agent-team/tests/tool-agent-team.spec.ts` | provider threading test + `latestTurnFailure` test; schema key list gains `provider` |
+| `plugins/dst-comet-agent-tools/index.js` | injects only `tools` now — the old `compaction`/`tokenMeter` inject sat "pending (waiting for service)" forever because `compaction` mounts lazily, so no agent ever saw the tools (run-5 §7); both services resolve on demand inside the executes |
+| `vendor/dsh-tui/src/components/sidePanel/builtinPanels.tsx` | Agents-tab auto-fold is PER-CARD with per-id timers — the old session-wide "nobody is running" gate let the Mother's constant running state keep every dead card visible all run (run-5 §2); failed members fold like settled rows |
+| `vendor/dsh-tui/scripts/verify-agents-side-panel.tsx` | pins "show cleared" so the gate's settled fixture cards stay assertable under the per-card fold |
+| `Advice/2026-10-27-bug-bounty-run5-*.md` | (untracked, live-run notes) status headers: §1/§2/§3/§6/§7/§9 addressed, §4/§8/§10/§11/§12 documented, §5 recorded |
+
+Constellation-MCP (own repo) run-5: `src/redact.ts` (tool-error secret
+redaction §1 + snapshot password masking §6), `errorResult` redaction,
+`snapshotOf` masks `input[type=password]` values, `mail_search` falls back to
+Spam/Trash with folder-tagged hits and `mail_get` takes `folder` (§9);
+34/34 tests + smoke (48 tools).
+
 ## 2026-10-27 — run-4 asks: visible wall reply, Agents-tab wall, delegated outcome
 
 | File | Why |
