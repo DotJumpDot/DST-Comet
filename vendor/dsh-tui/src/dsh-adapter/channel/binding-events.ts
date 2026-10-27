@@ -55,6 +55,9 @@ export function createBindingEvents(ctx: Context, deps: {
     onStreamFrame?(agent: unknown, frame: AssistantStreamFrame): boolean
     onStart(info: { id: string; runId?: string; provider: string; local?: boolean }, parent: object | null): void
     onEnd(info: { id: string; runId?: string; stopReason: string; lastAssistantMessage?: unknown[] }, parent: object | null): void
+    /** Agents-registry status transition for a tracked child; settles
+     *  idle/gone rows that never saw an end edge (run-5 §2 follow-up). */
+    onAgentStatus?(agentId: string, status: string): void
     forget?(agent: Agent): void
   }
   /** The job projection's own raw-event half: it times the card hold a tool
@@ -130,8 +133,21 @@ export function createBindingEvents(ctx: Context, deps: {
     deps.owner.own(ctx.on('subagent/end' as never, (function (this: unknown, info: Parameters<typeof deps.subagents.onEnd>[0]) {
       if (deps.owner.current()) deps.subagents.onEnd(info, carrierKeyOf(this) ?? null)
     }) as never))
+    // Registry liveness (run-5 §2 follow-up): an idle continuable child or a
+    // released lane never emits `subagent/end`, so its row would stay
+    // `running` forever. The registry's own status events are the authority.
+    deps.owner.own(ctx.on('agent/status', ({ agent, status }) => {
+      if (!deps.owner.current()) return
+      const id = (agent as { id?: unknown } | null | undefined)?.id
+      if (typeof id === 'string' && typeof status === 'string') deps.subagents.onAgentStatus?.(id, status)
+    }))
     deps.owner.own(ctx.on('agent/disposed', ({ agent }) => {
-      if (deps.owner.current()) deps.subagents.forget?.(agent)
+      if (!deps.owner.current()) return
+      deps.subagents.forget?.(agent)
+      // A drained child never emits an end edge; settle its row the same way
+      // an idle transition does so it cannot pin the dashboard as `running`.
+      const id = (agent as { id?: unknown } | null | undefined)?.id
+      if (typeof id === 'string') deps.subagents.onAgentStatus?.(id, 'disposed')
     }))
   }
   /**

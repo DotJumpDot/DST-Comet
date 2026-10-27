@@ -513,6 +513,37 @@ export class SubagentActivityStore {
   onFailed(agentId: string, error: string, endedAt?: number): void { this.finish(agentId, 'failed', error, undefined, endedAt) }
   onCancelled(agentId: string, reason = 'cancelled', summary?: string, endedAt?: number): void { this.finish(agentId, 'cancelled', reason, summary, endedAt) }
 
+  /** Settle a row whose child went idle or away with no end event (Agents-tab
+   *  follow-up to run-5 §2): a continuable child stays registered while idle
+   *  and a released lane is drained without `subagent/end`, so a row born
+   *  `running` pinned the dashboard forever. The agents-registry status is the
+   *  authority; `unknown` is the settled-without-outcome state — a later
+   *  terminal edge still lands (see finish), and a new epoch re-opens running. */
+  settleIdle(agentId: string, endedAt = Date.now()): boolean {
+    const state = this.states.get(agentId)
+    if (state === undefined || (state.status !== 'running' && state.status !== 'starting')) return false
+    const stream = this.streams.get(agentId)
+    if (stream !== undefined) this.restoreAttempt(agentId, stream)
+    state.status = 'unknown'
+    state.completedAt = endedAt
+    state.endedAt = endedAt
+    this.notify()
+    return true
+  }
+
+  /** Reverse half of settleIdle: the registry says the child is running a turn
+   *  again. Only `unknown` rows resurrect — terminal outcomes are epoch facts
+   *  a status event must not rewrite (a fresh epoch re-opens via onStart). */
+  resumeRunning(agentId: string): boolean {
+    const state = this.states.get(agentId)
+    if (state === undefined || state.status !== 'unknown') return false
+    state.status = 'running'
+    state.completedAt = undefined
+    state.endedAt = undefined
+    this.notify()
+    return true
+  }
+
   private finish(agentId: string, status: SubagentStatus, reason?: string, summary?: string, endedAt?: number): void {
     const state = this.states.get(agentId)
     // `unknown` rows (durable discovery: catalog children, workflow members

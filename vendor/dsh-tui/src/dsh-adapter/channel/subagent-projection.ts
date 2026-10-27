@@ -205,6 +205,7 @@ export function createSubagentProjection(getState: () => ProjectionState, deps: 
     },
     onStart(info: Parameters<Projection['onStart']>[0], parent?: object | null) { childProjection(info.id, parent)?.onStart(info) },
     onEnd(info: Parameters<Projection['onEnd']>[0], parent?: object | null) { childProjection(info.id, parent)?.onEnd(info) },
+    onAgentStatus(agentId: string, status: string) { childProjection(agentId, null)?.onAgentStatus(agentId, status) },
     onParentEvent: (event: unknown) => active.onParentEvent(event),
     bootstrapFromLog(events: readonly unknown[]) {
       // Live parked reducers already consumed this log. Re-folding historical
@@ -581,6 +582,18 @@ function createSessionSubagentProjection(
     syncNow()
     getState().emit()
   }
+  /** Agents-registry status for a tracked child (binding-events forwards the
+   *  host's `agent/status`): idle-or-gone settles a row that would otherwise
+   *  pin the dashboard as `running` forever — continuable children stay
+   *  registered while idle and released lanes are drained without an end
+   *  edge — and a return to running resurrects an idle-settled row in place. */
+  const onAgentStatus = (agentId: string, status: string): void => {
+    const changed = status === 'running' ? store.resumeRunning(agentId) : store.settleIdle(agentId)
+    if (changed) {
+      syncNow()
+      getState().emit()
+    }
+  }
   /**
    * The direct continuable prompt: one browser-authored message through
    * the continuation manager, whose rules cover exact-parent authority,
@@ -648,5 +661,5 @@ function createSessionSubagentProjection(
   }
   const dropRows = (): void => { streamDirty = false; rowsByAgentId.clear() }
   const reset = (): void => { dropRows(); cardedIds.clear(); workflowMembers.clear(); pendingTaskDescriptions.length = 0; evictedDescriptionCount = 0; agentMessages.length = 0; store.reset(); getState().subagents = []; getState().subagentCost = [] }
-  return { store, control, pendingTaskDescriptions, agentMessages, onSessionEvent, onStreamFrame, onParentEvent, bootstrapFromLog, onStart, onEnd, syncNow, flush, dropRows, reset, submitPrompt }
+  return { store, control, pendingTaskDescriptions, agentMessages, onSessionEvent, onStreamFrame, onParentEvent, bootstrapFromLog, onStart, onEnd, onAgentStatus, syncNow, flush, dropRows, reset, submitPrompt }
 }
