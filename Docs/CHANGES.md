@@ -4,6 +4,27 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-27 — run-4 asks: visible wall reply, Agents-tab wall, delegated outcome
+
+| File | Why |
+|---|---|
+| `engine/agent-team/src/task-board.ts` | `complete` accepts an UNOWNED task from the Lead (pending or in_progress) — released lanes leave tasks behind and the Lead had to claim-then-complete each one (run-4 §8b) |
+| `engine/agent-team/src/index.ts` | `message` wake reasons carry `sender: ≤140-char preview` of the first text block (`messagePreview`) — the Mother had to snapshot just to learn what moved (run-4 §8i) |
+| `engine/tool-agent-team/src/human-tasks.ts` | `HumanTaskOutcome` gains `delegated` (run-4 §8c) |
+| `engine/tool-agent-team/src/index.ts` | resolve enum/view schema + `delegated`; the delegated wake text hands the RULING to the agent ("record the ruling was yours"), distinct from done |
+| `engine/tool-agent-team/tests/tool-agent-team.spec.ts` | delegated end-to-end test (wake text + list status) — 22/22 |
+| `src/channel/attached-context-record.ts` (new) | durable replay of the `⧉ carried` echo from a sent message's own `<attached-context>` blocks (live + restart identical; the bubble never shows the blocks — firstTextOf keeps only the typed text, so nothing said the context rode along) |
+| `src/adapter/ports/channel-view.ts` | `AttachedContextEcho` type + `ChatRow.attachedContexts` |
+| `src/channel/projection.ts` | user rows derive `attachedContexts` from their blocks (same seam as the selection indicator) |
+| `src/components/MessageList.tsx` | user rows render the `⧉ carried (n · chars): title` line above the bubble; height signature + MemoRow threading |
+| `src/components/PromptInput.tsx` | the staged-context chip strip ends with a dim `· esc cancels` hint (the carry now answers its own "how do I back out") |
+| `src/components/SubagentDashboard.tsx` | `HumanWallSummary` under the task board — open wall asks show on the Agents tab where the human actually sits, with a pointer to the `!` panel (user ask) |
+| `src/components/sidePanel/HumanWallPanel.tsx` | `g delegated` key + action chip; resolve() widens to the new outcome |
+| `src/dsh-adapter/team-tools.ts` | wait_agent card line keeps 100 chars of the wake detail (message previews arrive intact) |
+| `src/i18n.ts` | `prompt-attached-context-hint`, `attached-context-echo`, `human-wall-resolve-delegated`, `human-wall-action-delegated`, `agents-human-wall-title/-hint`; `human-wall-attached`/`-hint` reworded (carry + Esc) |
+| `scripts/verify-attached-context.tsx` | C4 updated for the trailing hint cell + C4b hint-always check |
+| `scripts/verify-attached-context-echo.tsx` (new) | parser + projector harness gate for the carried echo (live/replay/absent) |
+
 ## 2026-10-27 — run-3 post-mortem: Human wall panel, instant steer, release_teammate, owner info tabs
 
 | File | Why |
