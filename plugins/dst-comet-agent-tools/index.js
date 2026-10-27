@@ -18,13 +18,20 @@
  *    the `agent/status` event. The next turn starts from the compacted
  *    history.
  *
+ * Run-5 advice §7: these two sat "pending (waiting for service: compaction)"
+ * for a whole live run — `compaction` mounts lazily, so an inject that names
+ * it never resolves until a human runs /compact, and the tools never appear
+ * in any agent's tool list. `inject` now names only the eager `tools`
+ * service; `compaction` / `tokenMeter` are resolved on demand inside the
+ * tool executes, when the session runtime is fully mounted.
+ *
  * @module @dst-comet/agent-tools
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 
 export const name = 'dst-comet-agent-tools'
-export const inject = ['tools', 'compaction', 'tokenMeter']
+export const inject = ['tools']
 
 /** Compact, retrying once if a racing wake beat the idle transition. */
 function scheduleCompact(ctx, agent) {
@@ -33,12 +40,16 @@ function scheduleCompact(ctx, agent) {
   let retried = false
   const run = async () => {
     try {
+      // Resolve the lazy service here: by turn end the runtime is mounted,
+      // and touching ctx.compaction instantiates it on demand.
+      const compaction = ctx.compaction
+      if (compaction === undefined) throw Object.assign(new Error('no compaction service'), { code: 'no-service' })
       // null = nothing useful to compact; outcomes (including failures)
       // surface through the session log's compaction events either way.
-      await ctx.compaction.compactNow(agent, controller.signal)
+      await compaction.compactNow(agent, controller.signal)
     } catch (error) {
       const code = error !== null && typeof error === 'object' && 'code' in error ? error.code : undefined
-      if (code === 'busy' && !retried) {
+      if ((code === 'busy' || code === 'no-service') && !retried) {
         retried = true
         const off = ctx.on('agent/status', payload => {
           if (payload.agent !== agent || payload.status !== 'idle') return
@@ -89,8 +100,10 @@ export async function apply(ctx, config) {
     execute(_args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('context_status requires an owning agent session')
-      const measurement = ctx.tokenMeter.measure(agent.session)
-      const pressure = ctx.tokenMeter.contextPressure(agent.session)
+      const tokenMeter = ctx.tokenMeter
+      if (tokenMeter === undefined) throw new Error('context_status: this runtime has no token meter')
+      const measurement = tokenMeter.measure(agent.session)
+      const pressure = tokenMeter.contextPressure(agent.session)
       // pressureTokens is the last real request's prompt size; the
       // measurement is the live estimate since then. Report the freshest
       // honest number: the live estimate once it exists, else the anchor.
@@ -126,7 +139,7 @@ export async function apply(ctx, config) {
     execute(_args, exec) {
       const agent = exec.agent
       if (agent === undefined) throw new Error('session_compact requires an owning agent session')
-      if (typeof agent.whenIdle !== 'function' || typeof agent.runMaintenance !== 'function') {
+      if (ctx.compaction === undefined || typeof agent.whenIdle !== 'function' || typeof agent.runMaintenance !== 'function') {
         throw new Error('session_compact: this runtime does not expose idle compaction')
       }
       scheduleCompact(ctx, agent)
