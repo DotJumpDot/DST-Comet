@@ -3,8 +3,11 @@
 import type { TeamId, TeamWaitResult } from './types.ts'
 import { errorMessage, TeamError } from './error.ts'
 
+/** What a wake reason carries besides the wake itself (DST-Comet). */
+export type TeamWakeReason = Omit<TeamWaitResult, 'timedOut'>
+
 interface Waiter {
-  readonly resolve: () => void
+  resolve: (reason: TeamWakeReason) => void
 }
 
 /** Owns current Team change waiters and releases each at most once. */
@@ -17,7 +20,7 @@ export class TeamActivity {
    * @param id - Team whose next edge wakes the caller.
    * @param timeoutMs - bounded wait duration from ten seconds through one hour.
    * @param signal - caller cancellation for this wait only.
-   * @returns whether the wait ended by timeout.
+   * @returns the wake reason when notified, or a timeout result.
    */
   async wait(id: TeamId, timeoutMs: number, signal: AbortSignal): Promise<TeamWaitResult> {
     if (!Number.isSafeInteger(timeoutMs) || timeoutMs < 10_000 || timeoutMs > 3_600_000) {
@@ -25,7 +28,7 @@ export class TeamActivity {
     }
     signal.throwIfAborted()
     if (this.closed) return { timedOut: false }
-    const changed = await new Promise<boolean>((resolve, reject) => {
+    return await new Promise<TeamWaitResult>((resolve, reject) => {
       let waiters = this.waiters.get(id)
       if (waiters === undefined) {
         waiters = new Set()
@@ -51,36 +54,37 @@ export class TeamActivity {
         })
       }
       const waiter: Waiter = {
-        resolve: () => {
-          finish(() => { resolve(true) })
+        resolve: (reason: TeamWakeReason) => {
+          finish(() => { resolve({ timedOut: false, ...reason }) })
         },
       }
       waiters.add(waiter)
-      const timer = setTimeout(() => { finish(() => { resolve(false) }) }, timeoutMs)
+      const timer = setTimeout(() => { finish(() => { resolve({ timedOut: true }) }) }, timeoutMs)
       signal.addEventListener('abort', onAbort, { once: true })
-      // AbortSignal does not replay an abort that wins between the pre-check and listener registration.
+      // AbortSignal does not replay an abort that won between the pre-check and listener registration.
       /* v8 ignore next -- requires an abort in the synchronous gap between the pre-check and listener registration. */
       if (signal.aborted) onAbort()
     })
-    return { timedOut: !changed }
   }
 
   /**
    * Wake and remove every current waiter for one Team.
    * @param id - Team whose current waiters observe the change.
+   * @param reason - what changed (`changed`/`target`/`detail`); waiters that
+   *   woke from a timeout-boundary race carry no reason.
    */
-  notify(id: TeamId): void {
+  notify(id: TeamId, reason: TeamWakeReason = {}): void {
     const waiters = this.waiters.get(id)
     if (waiters === undefined) return
     this.waiters.delete(id)
-    for (const waiter of waiters) waiter.resolve()
+    for (const waiter of waiters) waiter.resolve(reason)
   }
 
   /** Close admission and wake every current waiter during runtime disposal. */
   close(): void {
     this.closed = true
     for (const waiters of this.waiters.values()) {
-      for (const waiter of waiters) waiter.resolve()
+      for (const waiter of waiters) waiter.resolve({})
     }
     this.waiters.clear()
   }

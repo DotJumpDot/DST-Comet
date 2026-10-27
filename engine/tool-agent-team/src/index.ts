@@ -228,7 +228,9 @@ const RELEASE_VALUE_SCHEMA = {
 
 /** `noProgress` is present only on the model-only shortcut that skips the wait;
  *  `interrupted` only when the wait ended by a user abort instead of an error;
- *  `user_input` / `inbox_message` when the caller's own inbox woke the wait. */
+ *  `user_input` / `inbox_message` when the caller's own inbox woke the wait;
+ *  `changed` / `target` / `detail` carry the service's wake reason (what
+ *  moved, so the Lead can skip a full re-list when the reason suffices). */
 const WAIT_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
@@ -237,6 +239,9 @@ const WAIT_VALUE_SCHEMA = {
     interrupted: { type: 'boolean' },
     user_input: { type: 'boolean' },
     inbox_message: { type: 'boolean' },
+    changed: { type: 'string', enum: ['message', 'status', 'task', 'member'] },
+    target: { type: 'string' },
+    detail: { type: 'string' },
     message: { type: 'string' },
     noProgress: {
       type: 'object',
@@ -524,7 +529,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'wait_agent',
-      description: 'Wait for the next teammate status, message, or shared-task change after this call starts. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.',
+      description: 'Wait for the next teammate status, message, or shared-task change after this call starts. The result says WHAT woke it (changed: message|status|task|member with target and detail) so you can often skip the full re-list. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.',
       parameters: {
         timeout_ms: {
           type: 'integer',

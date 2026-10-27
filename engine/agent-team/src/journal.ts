@@ -4,9 +4,35 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
 import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import type { TeamEventType, TeamState } from './projection.ts'
+import type { TeamWakeReason } from './activity.ts'
 
 type AppendTeamEvent = <T extends TeamEventType>(type: T, data: SessionEventMap[T]) => void
 type MutableTeamEventType = 'team/member' | 'team/member/released' | 'team/task'
+
+/** What one committed event tells a waiter (DST-Comet wake reasons). */
+function commitReasonOf(type: MutableTeamEventType, data: SessionEventMap[MutableTeamEventType]): TeamWakeReason {
+  const payload = data as { task?: { id?: unknown; subject?: unknown }; member?: { name?: unknown; phase?: unknown }; memberId?: unknown }
+  switch (type) {
+    case 'team/task':
+      return {
+        changed: 'task',
+        ...(typeof payload.task?.id === 'string' ? { target: payload.task.id } : {}),
+        ...(typeof payload.task?.subject === 'string' ? { detail: payload.task.subject } : {}),
+      }
+    case 'team/member':
+      return {
+        changed: 'member',
+        ...(typeof payload.member?.name === 'string' ? { target: payload.member.name } : {}),
+        ...(typeof payload.member?.phase === 'string' ? { detail: payload.member.phase } : {}),
+      }
+    case 'team/member/released':
+      return {
+        changed: 'member',
+        ...(typeof payload.memberId === 'string' ? { target: payload.memberId } : {}),
+        detail: 'released',
+      }
+  }
+}
 
 /** Owns per-Lead transaction order and committed Team event publication. */
 export class TeamJournal {
@@ -17,11 +43,12 @@ export class TeamJournal {
    *   SessionProjections services (DST-Comet: state is read through the
    *   published `stateOf(session, key)` registry — the vendored pin's
    *   `ProjectionHandle` API predates what was shipped as 0.2.1-rc.3).
-   * @param onCommit - synchronous notification after the Team event flush succeeds.
+   * @param onCommit - synchronous notification after the Team event flush
+   *   succeeds, carrying what the commit changed for waiters.
    */
   constructor(
     private readonly ctx: Context,
-    private readonly onCommit: (root: Agent) => void,
+    private readonly onCommit: (root: Agent, reason: TeamWakeReason) => void,
   ) {}
 
   /**
@@ -72,6 +99,6 @@ export class TeamJournal {
     const append = root.session.append.bind(root.session) as unknown as AppendTeamEvent
     append(type, data)
     await this.ctx.sessions.flush(root.session)
-    this.onCommit(root)
+    this.onCommit(root, commitReasonOf(type, data))
   }
 }

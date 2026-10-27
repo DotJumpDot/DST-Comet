@@ -96,7 +96,7 @@ export class TeamService extends Service {
     // plugin unregisters the unit, so the returned disposer is not tracked.
     // (DST-Comet: published registry API — sync register + stateOf(session, key).)
     ctx.sessionProjections.register(teamProjectionDefinition)
-    this.journal = new TeamJournal(ctx, (root) => { this.activity.notify(TeamId(root.id)) })
+    this.journal = new TeamJournal(ctx, (root, reason) => { this.activity.notify(TeamId(root.id), reason) })
     this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
     this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
     ctx.effect(() => () => this.disposeRuntime(), 'agentTeams.runtimeLifecycle()')
@@ -104,9 +104,11 @@ export class TeamService extends Service {
     // Published listener contract: handlers return undefined (an async
     // handler may return a promise); a statement body's void is rejected.
     ctx.on('agent/created', ({ agent }) => void this.scheduleRecovery(agent))
-    ctx.on('agent/status', ({ agent }) => {
+    ctx.on('agent/status', ({ agent, status }) => {
       const membership = this.roster.tryMembership(agent)
-      if (membership !== undefined) this.activity.notify(membership.id)
+      if (membership !== undefined) {
+        this.activity.notify(membership.id, { changed: 'status', target: membership.name, detail: status })
+      }
     })
     for (const agent of ctx.agents.list()) this.scheduleRecovery(agent)
   }
@@ -257,7 +259,7 @@ export class TeamService extends Service {
     } else {
       messageId = await steerHostSubagentPrompt(this.ctx.subagents, root, target.id, content, source, request.signal)
     }
-    this.activity.notify(membership.id)
+    this.activity.notify(membership.id, { changed: 'message', target: target.name, detail: membership.name })
     return { messageId }
   }
 

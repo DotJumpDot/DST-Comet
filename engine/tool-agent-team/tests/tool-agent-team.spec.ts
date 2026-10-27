@@ -358,3 +358,25 @@ test('wait_agent returns immediately when user steering is already pending', asy
   assert.equal(result.user_input, true)
   assert.equal(teamWaitCalls, 0, 'the pending steering is answered without entering the Team wait')
 })
+
+test('wait_agent forwards the service wake reason (what moved, not just "changed")', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const wait = registered.find(row => row.name === 'wait_agent')!.definition
+  const wakes = [
+    { timedOut: false, changed: 'task' as const, target: 'task-3', detail: 'fixture signup matrix' },
+    { timedOut: false, changed: 'status' as const, target: 'scout', detail: 'idle' },
+    { timedOut: false, changed: 'message' as const, target: 'scout', detail: 'lead' },
+    { timedOut: true },
+  ]
+  ctx.agentTeams.waitForChange = async () => wakes.shift()
+  const task = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  assert.deepEqual([task.changed, task.target, task.detail], ['task', 'task-3', 'fixture signup matrix'])
+  const status = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  assert.deepEqual([status.changed, status.target, status.detail], ['status', 'scout', 'idle'])
+  const message = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  assert.deepEqual([message.changed, message.target, message.detail], ['message', 'scout', 'lead'])
+  const timeout = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  assert.equal(timeout.timedOut, true)
+  assert.equal(timeout.changed, undefined)
+})

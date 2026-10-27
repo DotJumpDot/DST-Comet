@@ -246,9 +246,20 @@ export interface UpdateTeamTaskRequest {
   readonly owner?: string
 }
 
+/** Why one wait woke: the domain that changed. (DST-Comet) */
+export type TeamWakeCause = 'message' | 'status' | 'task' | 'member'
+
 /** Result of waiting for Team activity. */
 export interface TeamWaitResult {
   readonly timedOut: boolean
+  /** What changed to wake the wait; absent on timeout and on race wakes that
+   *  carry no reason. Lets the Lead skip the re-list when the reason already
+   *  says what moved. (DST-Comet) */
+  readonly changed?: TeamWakeCause
+  /** Who/what the change concerns: member or target name, or a task id. */
+  readonly target?: string
+  /** One-line detail: task subject, phase transition, or message sender. */
+  readonly detail?: string
 }
 
 declare module '@deepseek-ai/dsh-session/types' {
