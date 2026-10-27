@@ -162,6 +162,29 @@ test('human_task_create parks the caller, mirrors the board, guard enforces, res
   assert.equal(guard({ agent: lead, name: 'pwsh' }), undefined)
 })
 
+test('human_task_resolve delegated hands the ruling to the agent (run-4 §8c)', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const create = registered.find(row => row.name === 'human_task_create')!.definition
+  const resolve = registered.find(row => row.name === 'human_task_resolve')!.definition
+  const result = await create.execute(
+    { title: 'widen scope to the API host?', steps: ['decide'], done_when: 'ruling recorded' },
+    exec(lead),
+  )
+  const sent: string[] = []
+  ctx.agentTeams.sendMessage = async (_caller: unknown, request: any) => {
+    sent.push(request.content.find((block: any) => block.type === 'text')!.text)
+    return { messageId: 'm9' }
+  }
+  const mate: any = { id: 'sess-mate' }
+  await resolve.execute({ task_id: (result.task as TaskView).id, outcome: 'delegated' }, exec(mate))
+  assert.equal(sent.length, 1)
+  assert.match(sent[0]!, /DELEGATED the decision to you/)
+  assert.match(sent[0]!, /ruling was yours/)
+  const listed = await registered.find(row => row.name === 'human_task_list')!.definition.execute({}, exec(mate))
+  assert.equal((listed.tasks as TaskView[])[0]!.status, 'delegated')
+})
+
 test('lane_freeze / lane_resume are Lead-only and flip the guard', async () => {
   const { ctx, lead, registered, guards } = fakeCtx()
   mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })

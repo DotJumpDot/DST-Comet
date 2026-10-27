@@ -25,8 +25,10 @@ import { randomUUID } from 'node:crypto'
 import { appendFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-/** Resolution chosen for one human task. */
-export type HumanTaskOutcome = 'done' | 'failed' | 'skip'
+/** Resolution chosen for one human task. `delegated` (run 4 advice §8c): the
+ *  human handed the DECISION back to the agent — the record must distinguish
+ *  "human decided X" from "human told the agent to decide". */
+export type HumanTaskOutcome = 'done' | 'failed' | 'skip' | 'delegated'
 
 /** One queued human-gated step. */
 export interface HumanTask {

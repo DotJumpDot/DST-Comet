@@ -5,6 +5,7 @@ import z from '@deepseek-ai/schemastery'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-session-persistence'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import { steerHostSubagentPrompt } from '@deepseek-ai/dsh-subagent/internal'
 import { TeamActivity } from './activity.ts'
 import { errorMessage, TeamError } from './error.ts'
@@ -52,6 +53,20 @@ function positiveLimit(name: string, value: number): number {
     throw new TeamError(`${name} must be a positive safe integer`, 'TEAM_INVALID_CONFIG')
   }
   return value
+}
+
+/** One-line, length-clamped preview of a relay's first text block — the
+ *  "message" wake-reason detail (run-4 advice §8i: the Lead should tell from
+ *  the wake alone whether the peer message concerns her). */
+function messagePreview(content: readonly ContentBlock[]): string {
+  const limit = 140
+  for (const block of content) {
+    if (block.type !== 'text') continue
+    const flat = block.text.replace(/\s+/gu, ' ').trim()
+    if (flat === '') continue
+    return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`
+  }
+  return '(no text)'
 }
 
 /** Agent Teams service backed by the exact live Lead Session log. */
@@ -259,7 +274,15 @@ export class TeamService extends Service {
     } else {
       messageId = await steerHostSubagentPrompt(this.ctx.subagents, root, target.id, content, source, request.signal)
     }
-    this.activity.notify(membership.id, { changed: 'message', target: target.name, detail: membership.name })
+    // Run-4 advice §8i: a "message" wake with no content forced the Lead to
+    // snapshot (or open files) just to learn what moved. The detail carries
+    // the sender plus a one-line preview of the message's first text block,
+    // so the Lead can decide from the wake alone whether it concerns her.
+    this.activity.notify(membership.id, {
+      changed: 'message',
+      target: target.name,
+      detail: `${membership.name}: ${messagePreview(request.content)}`,
+    })
     return { messageId }
   }
 

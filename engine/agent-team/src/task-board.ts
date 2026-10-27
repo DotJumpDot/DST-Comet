@@ -159,11 +159,25 @@ export class TeamTaskBoard {
           if (request.blockedBy === undefined) throw new TeamError('set_dependencies requires blocked_by', 'TEAM_INVALID_ARGUMENT')
           next = { ...current, blockedBy: this.dependencies(request.blockedBy, state, current.id) }
           break
-        case 'complete':
+        case 'complete': {
           authorizeOwner()
-          if (current.status !== 'in_progress') throw new TeamError('only an in-progress task can complete', 'TEAM_TASK_INVALID_TRANSITION')
+          // Run-4 advice §8b: a released lane leaves its tasks unowned on
+          // the board (release frees the member, not the board), and the
+          // Lead closing the lane had to claim-then-complete each one. The
+          // Lead may complete an UNOWNED task straight from pending or
+          // in_progress; a task another member still owns keeps the
+          // in-progress requirement.
+          const leadClosesUnowned = lead && current.ownerId === undefined
+            && (current.status === 'pending' || current.status === 'in_progress')
+          if (current.status !== 'in_progress' && !leadClosesUnowned) {
+            throw new TeamError(
+              'only an in-progress task can complete (the Lead may also complete an unowned task)',
+              'TEAM_TASK_INVALID_TRANSITION',
+            )
+          }
           next = { ...current, status: 'completed' }
           break
+        }
         case 'reopen':
           authorizeOwner()
           if (current.status !== 'completed') throw new TeamError('only a completed task can reopen', 'TEAM_TASK_INVALID_TRANSITION')

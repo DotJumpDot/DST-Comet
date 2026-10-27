@@ -271,7 +271,7 @@ const HUMAN_TASK_VIEW_SCHEMA = {
     lane: { type: 'string' },
     title: { type: 'string', required: true },
     member: { type: 'string', required: true },
-    status: { type: 'string', required: true, enum: ['waiting', 'done', 'failed', 'skip'] },
+    status: { type: 'string', required: true, enum: ['waiting', 'done', 'failed', 'skip', 'delegated'] },
     steps: { type: 'array', required: true, items: { type: 'string' } },
     done_when: { type: 'string', required: true },
     preserve_tab: { type: 'string' },
@@ -334,7 +334,7 @@ const HUMAN_WAIT_VALUE_SCHEMA = {
       additionalProperties: false,
       properties: {
         task_id: { type: 'string', required: true },
-        outcome: { type: 'string', required: true, enum: ['done', 'failed', 'skip'] },
+        outcome: { type: 'string', required: true, enum: ['done', 'failed', 'skip', 'delegated'] },
       },
     },
     timedOut: { type: 'boolean' },
@@ -841,10 +841,10 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'human_task_resolve',
-      description: 'Resolve one human task with the human\'s outcome: releases the parked agent and wakes it with the outcome and the done_when post-condition it must re-verify itself. Any member may resolve.',
+      description: 'Resolve one human task with the human\'s outcome: releases the parked agent and wakes it with the outcome and the done_when post-condition it must re-verify itself. Any member may resolve. `delegated` = the human handed the DECISION back to the agent (record it as the agent\'s ruling, not the human\'s).',
       parameters: {
         task_id: { type: 'string', required: true, description: 'Human task id from human_task_create or human_task_list.' },
-        outcome: { type: 'string', required: true, enum: ['done', 'failed', 'skip'], description: 'What the human reported.' },
+        outcome: { type: 'string', required: true, enum: ['done', 'failed', 'skip', 'delegated'], description: 'What the human reported. delegated = the human told the agent to decide.' },
         summary: { type: 'string', description: 'Optional one-line human note passed to the parked agent.' },
       },
       output: jsonOutput(HUMAN_RESOLVE_VALUE_SCHEMA),
@@ -879,11 +879,17 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         }
         let notified = false
         if (task.memberId !== caller.id) {
+          // `delegated` changes the ask: the human did not answer, they handed
+          // the ruling back — the parked agent decides AND owns the decision
+          // in its record (run 4 advice §8c).
+          const wakeText = task.outcome === 'delegated'
+            ? `Human task ${task.id} ("${task.title}"): the human DELEGATED the decision to you. Decide and proceed yourself; record in STATE that the ruling was yours, not the human's. Post-condition you own: ${task.doneWhen}`
+            : `Human task ${task.id} ("${task.title}") resolved as ${task.outcome}${task.summary === undefined ? '' : `: ${task.summary}`}.\nRe-verify the post-condition yourself: ${task.doneWhen}`
           await ctx.agentTeams.sendMessage(caller, {
             target: task.memberName,
             content: [{
               type: 'text',
-              text: `Human task ${task.id} ("${task.title}") resolved as ${task.outcome}${task.summary === undefined ? '' : `: ${task.summary}`}.\nRe-verify the post-condition yourself: ${task.doneWhen}`,
+              text: wakeText,
             }],
             signal: exec.signal,
           })
