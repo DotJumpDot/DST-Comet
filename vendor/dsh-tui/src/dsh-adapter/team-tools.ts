@@ -169,7 +169,17 @@ function resultLine(name: string, value: unknown): string | undefined {
       if (value.user_input === true) return 'user input arrived'
       if (value.inbox_message === true) return 'peer message arrived'
       if (value.interrupted === true) return 'interrupted'
-      return value.timedOut ? 'timedOut' : 'changed'
+      if (value.timedOut) return 'timedOut'
+      {
+        // DST-Comet wake reasons: what moved, so the card line is actionable
+        // (`changed task task-3 · fixture signup matrix`) instead of "changed".
+        const changed = str(value.changed)
+        if (changed === undefined) return 'changed'
+        const target = str(value.target)
+        const detail = str(value.detail)
+        const head = `changed ${changed}${target === undefined ? '' : ` ${target}`}`
+        return detail === undefined ? head : `${head} · ${firstLine(detail).slice(0, 60)}`
+      }
     case 'interrupt_agent':
       return isRecord(value) ? str(value.previousStatus) : undefined
     case 'team_task_list': {
