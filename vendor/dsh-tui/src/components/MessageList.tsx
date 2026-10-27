@@ -410,6 +410,11 @@ function signatureParts(
         row.selectionAttached === undefined ? 0 : 1,
         stringWidth(displaySelectionPath(row.selectionAttached?.path ?? '', sessionCwd)),
         String(row.selectionAttached?.lines ?? ''),
+        // The carried-context echo line is one more rendered row above the
+        // bubble; its presence and title widths are height inputs (same
+        // rationale as the selection indicator).
+        row.attachedContexts === undefined ? 0 : 1,
+        (row.attachedContexts ?? []).reduce((width, echo) => width + stringWidth(echo.title), 0),
         // A team message adds its sender line above the body.
         teamSenderOf(row) ?? '',
       )
@@ -1668,6 +1673,7 @@ export function MessageList({
               textFull={row.kind === 'reasoning' ? row.text : undefined}
               executionTarget={row.executionTarget}
               selectionAttached={row.selectionAttached}
+              attachedContexts={row.attachedContexts}
               sender={teamSenderOf(row)}
               streaming={displayStreaming}
               thinkingOpen={row.thinkingOpen === true}
@@ -1754,6 +1760,9 @@ type MemoRowProps = {
   executionTarget: string | undefined
   /** IDE selection indicator (user rows): rendered above the prompt bubble. */
   selectionAttached: ChatRow['selectionAttached']
+  /** Carried staged-context echo (user rows): the "⧉ carried:" line above
+   *  the bubble — the human's visible proof a panel context rode along. */
+  attachedContexts: ChatRow['attachedContexts']
   sender: ChatRow['sender']
   /** Session cwd for the indicator's display-path relativization (T-FIX-01). */
   sessionCwd: string | undefined
@@ -1864,6 +1873,7 @@ function TranscriptRow({
   textFull,
   executionTarget,
   selectionAttached,
+  attachedContexts,
   sender,
   sessionCwd,
   streaming,
@@ -1986,6 +1996,20 @@ function TranscriptRow({
                 lines: selectionAttached.lines,
                 count: selectionAttached.lines,
                 path: displaySelectionPath(selectionAttached.path, sessionCwd),
+              })}
+            </Text>
+          )}
+          {attachedContexts !== undefined && attachedContexts.length > 0 && (
+            // The staged-context blocks are model-facing and never enter the
+            // bubble text; this line is the human's visible proof the reply
+            // carried them (user ask 2026-10-27 night: "did m carry the wall
+            // or did I type into empty context?" — the answer must be on the
+            // row itself, durable across replay).
+            <Text dimColor wrap="truncate-end">
+              {'⧉ '}{t('attached-context-echo', {
+                titles: attachedContexts.map(echo => echo.title).join(' · '),
+                count: attachedContexts.length,
+                chars: attachedContexts.reduce((sum, echo) => sum + echo.chars, 0),
               })}
             </Text>
           )}

@@ -47,7 +47,7 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
   // mid-turn Mother it sat queued. Steer reaches a running Lead at its next
   // STEP boundary (the same path a teammate send_message takes) and wakes a
   // wait_agent instantly via the engine's inbox race.
-  const resolve = (item: HumanWallItem, outcome: 'done' | 'failed'): void => {
+  const resolve = (item: HumanWallItem, outcome: 'done' | 'failed' | 'delegated'): void => {
     const text = t(`human-wall-resolve-${outcome}`, {
       id: item.humanId ?? item.id,
       title: item.title,
@@ -104,6 +104,12 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
     }
     if (input === 'f' && item.open) {
       resolve(item, 'failed')
+      return true
+    }
+    // g = delegated (run 4 advice §8c): "do what you think" — distinct from
+    // done (the human decided) and failed; the ruling lands on the agent.
+    if (input === 'g' && item.open) {
+      resolve(item, 'delegated')
       return true
     }
     if (input === 'm') {
@@ -194,6 +200,8 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
                     {actionChip(t('human-wall-action-done'), () => resolve(item, 'done'), 'success')}
                     <Text dimColor>│</Text>
                     {actionChip(t('human-wall-action-failed'), () => resolve(item, 'failed'), 'error')}
+                    <Text dimColor>│</Text>
+                    {actionChip(t('human-wall-action-delegated'), () => resolve(item, 'delegated'), 'subtle')}
                     <Text dimColor>│</Text>
                     {actionChip(t('human-wall-action-reply'), () => attachSummary(item), 'accent')}
                     {item.preserveUrl !== undefined && (

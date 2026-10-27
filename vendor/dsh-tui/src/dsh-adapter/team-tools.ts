@@ -173,12 +173,14 @@ function resultLine(name: string, value: unknown): string | undefined {
       {
         // DST-Comet wake reasons: what moved, so the card line is actionable
         // (`changed task task-3 · fixture signup matrix`) instead of "changed".
+        // 100 chars: the run-4 message wake now carries a sender + preview in
+        // detail — enough of it to judge relevance without opening a snapshot.
         const changed = str(value.changed)
         if (changed === undefined) return 'changed'
         const target = str(value.target)
         const detail = str(value.detail)
         const head = `changed ${changed}${target === undefined ? '' : ` ${target}`}`
-        return detail === undefined ? head : `${head} · ${firstLine(detail).slice(0, 60)}`
+        return detail === undefined ? head : `${head} · ${firstLine(detail).slice(0, 100)}`
       }
     case 'interrupt_agent':
       return isRecord(value) ? str(value.previousStatus) : undefined

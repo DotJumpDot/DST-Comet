@@ -4544,6 +4544,13 @@ export function PromptInput({
               </Text>
             </Box>
           ))}
+          {/* The strip must answer the two questions a staged context raises
+            *  (user ask 2026-10-27 night): is it carrying? — the chips are —
+            *  and how do I back out? Esc peels them (before the draft), and
+            *  saying so ON the strip is the only place the human is looking. */}
+          <Box flexShrink={0}>
+            <Text dimColor>{t('prompt-attached-context-hint')}</Text>
+          </Box>
         </Box>
       )}
       {lastNotification && toastVisible && (

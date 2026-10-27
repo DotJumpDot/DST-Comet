@@ -9,6 +9,7 @@ import { isPlainReturnInput } from '../utils/modifiers.js'
 import { usePanelInput } from './sidePanel/usePanelInput.js'
 import type { SidePanelKeyFlags } from './sidePanel/types.js'
 import { getTaskBoardTab, setTaskBoardTab, subscribeTaskBoardTab, toggleTaskBoardTab, type TaskBoardTab } from './sidePanel/taskBoardTab.js'
+import { humanWallItems } from './sidePanel/humanWall.js'
 import { AgentMessagesSummary } from './messages/AgentMessageFlow.js'
 import type { AgentMessageView, AgentIdentity } from './messages/agentTeam.js'
 import type { TeamTask, TeamView } from '../adapter/ports/channel-view.js'
@@ -153,6 +154,32 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
           )}
         </Box>
       ))}
+    </Box>
+  )
+}
+
+/** Open human-wall asks projected under the task board (user ask
+ *  2026-10-27 night: the human sits on the Agents tab, so a wall parked on
+ *  the `!` tab must surface HERE too or it waits unseen). Display-only —
+ *  the actions stay in the human panel; the hint line says where. */
+function HumanWallSummary({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
+  const open = React.useMemo(
+    () => humanWallItems({ tasks }).filter(item => item.open),
+    [tasks],
+  )
+  if (open.length === 0) return null
+  return (
+    <Box flexDirection="column" marginTop={1}>
+      <Text color="error" bold>{t('agents-human-wall-title', { count: open.length })}</Text>
+      {open.map(item => (
+        <Box key={item.id} flexDirection="row" paddingLeft={1}>
+          <Box flexShrink={0} marginRight={1}><Text color="error">⚠</Text></Box>
+          <Box flexGrow={1} flexShrink={1} overflow="hidden">
+            <Text wrap="truncate-end">{`${item.member === undefined ? '' : `[${item.member}] `}${item.title}`}</Text>
+          </Box>
+        </Box>
+      ))}
+      <Text dimColor>{'  ' + t('agents-human-wall-hint')}</Text>
     </Box>
   )
 }
@@ -498,6 +525,7 @@ export function SubagentDashboard({
             ))
           )}
           {visibleTeam !== undefined && <TeamTaskBoard tasks={visibleTeam.tasks} />}
+          {visibleTeam !== undefined && <HumanWallSummary tasks={visibleTeam.tasks} />}
         </ScrollBox>
       </Box>
 

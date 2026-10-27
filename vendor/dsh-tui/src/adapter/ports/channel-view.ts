@@ -64,6 +64,18 @@ export interface AttachedContext {
 }
 
 /**
+ * Transcript echo of one staged context a SENT user message carried: the
+ * "⧉ carried: <title>" line above the bubble. Deliberately title + size
+ * only — the body stays in the model-facing block, and the echo is derived
+ * from the persisted `<attached-context …>` block itself (live and replay
+ * take the same path), so what the indicator claims is what the log holds.
+ */
+export interface AttachedContextEcho {
+  readonly title: string
+  readonly chars: number
+}
+
+/**
  * One working-activity line value a backend publishes for its own session.
  * Same shape as the DSH `dsh-working-activity` plugin's session projection,
  * so a backend without that plugin (Claude folds its own) can serve the same
@@ -171,6 +183,12 @@ export interface ChatRow {
   /** Present on user rows whose submit consumed a live IDE selection: the
    *  transcript renders the "Selected N lines" indicator above the bubble. */
   selectionAttached?: SelectionAttachment
+  /** Present on user rows whose submit carried staged panel contexts: the
+   *  transcript renders the "⧉ carried: <title>" line(s) above the bubble so
+   *  the human SEES the context rode along (the block itself is model-facing
+   *  and never enters the bubble text). Derived from the persisted message,
+   *  so a replayed session rebuilds the indicator identically. */
+  attachedContexts?: readonly AttachedContextEcho[]
 }
 
 /** Tool-call card state: the presentation of one tool invocation. */

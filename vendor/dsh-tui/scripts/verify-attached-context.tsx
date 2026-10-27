@@ -366,14 +366,24 @@ console.log('--- C/D: composer render ---')
   }))
 
   // 超宽：只留一枚超长标题的 chip —— 行高恒 1、以省略号收尾、完整标题不上屏。
+  // （DST-Comet：chip 行尾还有一枚固定的 `esc 取消` 提示格 —— 携带状态必须
+  // 自带退出方式，2026-10-27 用户问“怎么取消”。行因此以提示收尾，省略号在
+  // 提示之前。）
   const detachAll = () => { for (const item of Array.from(holder.attachedContexts)) registry.detach(item.id) }
   detachAll()
   check('C4 前置：清空后 chip 行消失', await settled(() => !screenHas(term, '⧉')))
   const longTitle = 'Job #' + '9'.repeat(120)
   channel.attachContext({ source: 'panel', sourceId: 'long', title: longTitle, content: 'z' })
-  check('C4 超宽 chip 单行截断（恒一行、省略号收尾、完整标题不上屏）', await settled(() => {
+  check('C4 超宽 chip 单行截断（恒一行、省略号 + esc 提示收尾、完整标题不上屏）', await settled(() => {
     const rows = viewportLines(term).filter(line => line.indexOf('⧉') >= 0)
-    return rows.length === 1 && rows[0].trimEnd().endsWith('…') && !screenHas(term, longTitle)
+    return rows.length === 1 && rows[0]!.includes('…') && rows[0]!.trimEnd().endsWith('esc 取消携带') && !screenHas(term, longTitle)
+  }), JSON.stringify(viewportLines(term).filter(line => line.indexOf('⧉') >= 0)))
+  // 提示格常驻：单枚短 chip 时也能看到取消方式。
+  detachAll()
+  channel.attachContext({ source: 'panel', sourceId: 'short', title: 'Job #7', content: 'q' })
+  check('C4b 单枚短 chip 行同样带 esc 提示', await settled(() => {
+    const rows = viewportLines(term).filter(line => line.indexOf('⧉') >= 0)
+    return rows.length === 1 && rows[0]!.includes('esc 取消')
   }), JSON.stringify(viewportLines(term).filter(line => line.indexOf('⧉') >= 0)))
 
   // D — Esc 分层。

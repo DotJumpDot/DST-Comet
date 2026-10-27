@@ -173,6 +173,8 @@ const dict = {
   // (mark + title), not a sentence, and the ⧉ mark matches the selection
   // indicator's above.
   'prompt-attached-context-chip': { zh: '⧉ {{title}}', en: '⧉ {{title}}' },
+  'prompt-attached-context-hint': { zh: '· esc 取消携带', en: '· esc cancels' },
+  'attached-context-echo': { zh: '随回复携带（{{count}} 项 · {{chars}} 字）：{{titles}}', en: 'carried with reply ({{count}} · {{chars}} chars): {{titles}}' },
   'transcript-image': { zh: '图片', en: 'Image' },
   'image-preview-previous': { zh: '上一张', en: 'Previous image' },
   'image-preview-next': { zh: '下一张', en: 'Next image' },
@@ -1905,17 +1907,21 @@ const dict = {
   'human-wall-done-when': { zh: '完成条件：{{done}}', en: 'done when: {{done}}' },
   'human-wall-not-parked': { zh: '（仅记录 —— 没有车道被暂停）', en: '(tracked ask — no lane is parked)' },
   'human-wall-done-unavailable': { zh: '（无记录的完成条件）', en: '(no recorded post-condition)' },
-  'human-wall-attached': { zh: '已把「{{title}}」附到输入框', en: 'Attached "{{title}}" to the chat draft' },
+  'human-wall-attached': {
+    zh: '已把「{{title}}」附到输入框 —— 直接输入回复，Esc 可取消携带',
+    en: 'Staged "{{title}}" — type your reply now; it will carry this context. Esc cancels the carry',
+  },
   'human-wall-context-heading': { zh: '人工墙：{{title}}', en: 'Human wall: {{title}}' },
   'human-wall-context-done': { zh: '完成条件：{{done}}', en: 'done when: {{done}}' },
   'human-wall-action-done': { zh: 'd 完成', en: 'd done' },
   'human-wall-action-failed': { zh: 'f 失败', en: 'f failed' },
+  'human-wall-action-delegated': { zh: 'g 交还决定', en: 'g delegate' },
   'human-wall-action-reply': { zh: 'm 回复', en: 'm reply' },
   'human-wall-action-open': { zh: 'o 打开', en: 'o open' },
   'human-wall-action-chrome': { zh: 'w Chrome', en: 'w chrome' },
   'human-wall-hint': {
-    zh: '↑↓ 选择 · ⏎ 展开 · d 完成 · f 失败 · m 回复 · o 打开链接 · w 跳到所属 Chrome',
-    en: '↑↓ select · ⏎ expand · d done · f failed · m reply · o open url · w focus chrome',
+    zh: '↑↓ 选择 · ⏎ 展开 · d 完成 · f 失败 · g 交还决定 · m 回复（带上背景，Esc 取消）· o 打开链接 · w 跳到所属 Chrome',
+    en: '↑↓ select · ⏎ expand · d done · f failed · g delegate · m reply (carries context, Esc cancels) · o open url · w focus chrome',
   },
   'human-wall-resolve-done': {
     zh: '人工墙：任务 {{id}}（“{{title}}”）我已完成（在面板点的 done）。请用 human_task_resolve 以 done 收尾，然后自己复核完成条件：{{done}}',
@@ -1925,6 +1931,12 @@ const dict = {
     zh: '人工墙：任务 {{id}}（“{{title}}”）我做不了。请用 human_task_resolve 以 failed 收尾，再决定这条车道的下一步。',
     en: 'Human wall: task {{id}} ("{{title}}") FAILED — I could not complete it. Resolve it with human_task_resolve (outcome failed), then decide the next step for the lane.',
   },
+  'human-wall-resolve-delegated': {
+    zh: '人工墙：任务 {{id}}（“{{title}}”）我把决定权交还给 agent —— 请自行判断并执行，用 human_task_resolve 以 delegated 收尾，并在 STATE 里写明是你做的决定。',
+    en: 'Human wall: task {{id}} ("{{title}}") — I am delegating this decision back to you. Decide and proceed yourself; resolve it with human_task_resolve (outcome delegated) and record in STATE that the ruling was yours, not mine.',
+  },
+  'agents-human-wall-title': { zh: '! 人工墙 · {{count}} 待处理', en: '! Human wall · {{count}} open' },
+  'agents-human-wall-hint': { zh: '到「!」面板处理（d 完成 · f 失败 · m 回复）', en: 'act in the ! panel (d done · f failed · m reply)' },
 
   // ── /team：团队状态（开关是 /plugin enable|disable，见 docs/agent-teams-design.md「开关机制」）──
   'team-cmd-unavailable': { zh: '当前内核没有 Agent Teams。', en: 'The current kernel has no Agent Teams.' },

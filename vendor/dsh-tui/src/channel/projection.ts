@@ -24,6 +24,7 @@ import { buildQuestionRecord, parseQuestionRecordAnswers, parseQuestionRecordQue
 import { cleanRenderText, NOTICE_CELLS } from './sanitize.js'
 import { appendLiveOutput, type LiveOutputTail } from './live-output.js'
 import { replaySelectionAttachment } from './selection-record.js'
+import { replayAttachedContexts } from './attached-context-record.js'
 import { ARGS_PREVIEW_LIMIT, LOCAL_OUTPUT_LIMIT, preview, RESULT_PREVIEW_LIMIT } from './transcript.js'
 import { addUsageToBucket, emptyCostBuckets, estimateTokens, estimateTokensFraction, usageOutputTokens, type PricingWindow } from './usage.js'
 
@@ -804,12 +805,18 @@ export function createChannelProjection(state: ProjectionState, deps: ChannelPro
       // persisted message, so the indicator survives a restart.
       const selectionAttached = deps.selectionAttached(event.id)
         ?? replaySelectionAttachment(event.blocks)
+      // "Send to Chat" echo: the staged-context blocks are model-facing and
+      // never enter the bubble text, so the human's only visible proof the
+      // context rode along is this indicator — derived from the persisted
+      // blocks themselves (live and replay take the same path).
+      const attachedContexts = replayAttachedContexts(event.blocks)
       appendRow({
         id: deps.rowIds.value,
         kind: 'user',
         text,
         ...(images.length === 0 ? {} : { images }),
         ...(selectionAttached === undefined ? {} : { selectionAttached }),
+        ...(attachedContexts === undefined ? {} : { attachedContexts }),
         seq: event.seq,
         // A native anchor beyond the seq (DSH anchors are the seq, so DSH
         // rows carry none) is what a backend rewind needs.
