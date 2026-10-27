@@ -94,7 +94,9 @@ export function humanWallItems(team: { readonly tasks: readonly TeamTask[] } | u
 }
 
 /** Which window label the "focus Chrome" action should activate: Constellation
- *  prefixes every owner page title with `[owner]`. */
+ *  prefixes every owner page title with `[owner]`, and the info tab carries it
+ *  too — the parked MEMBER is the owner name (the lane is often a different
+ *  word, e.g. lane "flourish" vs owner "scout"). */
 export function ownerWindowLabel(item: HumanWallItem): string {
-  return `[${item.lane ?? item.member ?? 'shared'}]`
+  return `[${item.member ?? item.lane ?? 'shared'}]`
 }

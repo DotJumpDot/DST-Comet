@@ -119,12 +119,37 @@ const TOOL_NAME_KEYS: Record<string, I18nKey> = {
   web_search: 'tool-name-web_search',
 }
 
+/** Words that render uppercase in a prettified tool name. */
+const NAME_ACRONYMS = new Set(['http', 'https', 'url', 'api', 'otp', 'oob', 'mcp', 'ui', 'id'])
+
+function titleWords(raw: string): string {
+  return raw.split(/[_-]+/).filter(Boolean).map(word =>
+    NAME_ACRONYMS.has(word.toLowerCase())
+      ? word.toUpperCase()
+      : word[0]!.toUpperCase() + word.slice(1).toLowerCase(),
+  ).join(' ')
+}
+
+/** `mcp__<server>__<tool>` → `MCP › Server › Tool Words` (user ask 2026-10-27:
+ *  the raw snake name is long and ugly in the header). The `browser_` prefix
+ *  every Constellation browser tool carries and the model-facing `_unsafe`
+ *  suffix are dropped — `mcp__constellation__browser_run_code_unsafe` reads
+ *  `MCP › Constellation › Run Code`. */
+function mcpToolDisplayName(name: string): string | undefined {
+  const match = /^mcp__([A-Za-z0-9_-]+)__(.+)$/.exec(name)
+  if (match === null) return undefined
+  const tool = match[2]!.replace(/^browser_/, '').replace(/_unsafe$/, '')
+  return `MCP › ${titleWords(match[1]!)} › ${titleWords(tool)}`
+}
+
 function displayName(name: string, displayKey?: string): string {
   // A backend that names its tools its own way (Claude `Read`, `Bash`)
   // supplies the key with the card view; the raw name is the fallback.
   if (displayKey !== undefined) return tOr(displayKey, name)
   const key = TOOL_NAME_KEYS[name]
   if (key !== undefined) return t(key)
+  const mcp = mcpToolDisplayName(name)
+  if (mcp !== undefined) return mcp
   if (name.length === 0) return name
   return name[0]!.toUpperCase() + name.slice(1)
 }

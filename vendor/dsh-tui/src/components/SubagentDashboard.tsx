@@ -114,10 +114,9 @@ const TASK_GLYPH: Record<TeamTask['status'], { readonly glyph: string; readonly 
 
 /** The team's shared task board, read-only, split into Doing / Finished tabs
  *  (DST Comet: one ever-growing list buried live work under completed rows
- *  the user could not clear). The tab chips live in the panel FOOTER (user
- *  UX feedback 2026-10-27: a chip header sitting between the roster and the
- *  task rows read as a stray label mid-list); rows keep the
- *  truncation-gated hover tooltip with the full subject. */
+ *  the user could not clear). Tab chips head the list itself (user round 3:
+ *  chips belong with the tasks — only the folded-agents line sits at the
+ *  panel foot); rows keep the truncation-gated hover tooltip. */
 function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const { columns } = useTerminalSize()
   const tab = React.useSyncExternalStore(subscribeTaskBoardTab, getTaskBoardTab)
@@ -131,6 +130,7 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
   const rows = tab === 'doing' ? doing : finished
   return (
     <Box flexDirection="column" marginTop={1}>
+      <TaskBoardTabChips tasks={tasks} />
       {rows.length === 0 && (
         <Text dimColor>{'  ' + t(tab === 'doing' ? 'team-tasks-doing-empty' : 'team-tasks-finished-empty')}</Text>
       )}
@@ -157,10 +157,9 @@ function TeamTaskBoard({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNo
   )
 }
 
-/** Doing / Finished tab chips for the Agents footer (house chip style from
+/** Doing / Finished tab chips heading the task list (house chip style from
  *  SubagentDetailScene: `inverse` active chip with its status glyph, dim `│`
- *  separator). Rendered below the scroll area, next to the folded-agents
- *  count, so the task list starts directly under the roster. */
+ *  separator). */
 export function TaskBoardTabChips({ tasks }: { tasks: readonly TeamTask[] }): React.ReactNode {
   const tab = React.useSyncExternalStore(subscribeTaskBoardTab, getTaskBoardTab)
   const doing = tasks.filter(task => task.status !== 'completed').length
@@ -438,7 +437,7 @@ export function SubagentDashboard({
         <Text color="error" wrap="wrap">{'⚠ ' + t('team-failure', { failure: team.failure })}</Text>
       )}
 
-      <Box flexDirection="column" maxHeight={panelMode ? Math.max(6, rows - 4) : Math.max(10, rows - 10)} marginTop={panelMode ? 0 : 1}>
+      <Box flexDirection="column" maxHeight={panelMode ? Math.max(6, rows - 4) : Math.max(10, rows - 10)} marginTop={panelMode ? 0 : 1} flexGrow={1} flexShrink={1} overflow="hidden">
         <ScrollBox ref={scrollRef} flexDirection="column" flexGrow={1}>
           {model !== undefined && (
             <>
@@ -502,21 +501,19 @@ export function SubagentDashboard({
         </ScrollBox>
       </Box>
 
-      {/* DST Comet footer: the task-board tabs and the folded-agents count
-          live at the panel bottom (user UX feedback 2026-10-27: a chip row
-          between roster and task rows read as a stray header mid-list). The
-          task list itself starts directly under the roster. */}
-      {(visibleTeam !== undefined || clearedKnown.size > 0) && (
+      {/* DST Comet footer: only the folded-agents count lives at the panel
+          foot (user round 3: the tab chips belong with the task list; this
+          line is the one that should sit below everything). flexGrow pins
+          it to the bottom edge instead of floating under the last row. */}
+      {clearedKnown.size > 0 && (
         <Box flexDirection="column" marginTop={1} paddingLeft={panelMode ? 1 : 0} flexShrink={0}>
-          {visibleTeam !== undefined && <TaskBoardTabChips tasks={visibleTeam.tasks} />}
-          {clearedKnown.size > 0 && (
-            <Box flexDirection="row" onClick={onToggleCleared}>
-              <Text dimColor wrap="truncate-end">
-                {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
-                {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
-              </Text>
-            </Box>
-          )}
+          <Box flexGrow={1} />
+          <Box flexDirection="row" onClick={onToggleCleared}>
+            <Text dimColor wrap="truncate-end">
+              {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
+              {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
+            </Text>
+          </Box>
         </Box>
       )}
 
