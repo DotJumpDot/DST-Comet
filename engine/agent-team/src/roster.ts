@@ -15,6 +15,8 @@ import type { TeamState } from './projection.ts'
 import { messageAccepted } from './session-message.ts'
 import { TeamId } from './types.ts'
 import type {
+  ReleaseTeammateRequest,
+  ReleaseTeammateResult,
   SpawnTeammateRequest,
   SpawnTeammateResult,
   TeamMemberSnapshot,
@@ -168,6 +170,20 @@ export class TeamRoster {
   }
 
   /**
+   * Remove one finished or stale teammate from the durable roster and stop its
+   * live child (DST-Comet: release_teammate). Frees the member slot and the
+   * name for a respawn — the repurpose-a-lane flow the live runs needed when a
+   * worker finished one engagement and the cap blocked its replacement.
+   * @param caller - exact live Lead Agent.
+   * @param request - target name and cancellation.
+   * @returns the removed name and whether a live child had to be drained.
+   */
+  async release(caller: Agent, request: ReleaseTeammateRequest): Promise<ReleaseTeammateResult> {
+    if (this.lifecycle.disposed) throw new TeamError('Agent Teams service is disposing', 'TEAM_DISPOSED')
+    return await this.lifecycle.track(this.releaseAdmitted(caller, request))
+  }
+
+  /**
    * Reconcile provisioning state when one Team member Session starts.
    * @param agent - newly started exact live Agent.
    * @param signal - shared runtime cancellation.
@@ -255,7 +271,12 @@ export class TeamRoster {
         throw new TeamError(`teammate name "${name}" was already used in this Team`, 'TEAM_MEMBER_NAME_TAKEN')
       }
       if (state.members.length >= this.maxMembers) {
-        throw new TeamError(`Team member limit ${this.maxMembers} reached`, 'TEAM_MEMBER_LIMIT')
+        const rosterLine = state.members.map(member => `${member.name}:${member.phase}`).join(', ')
+        throw new TeamError(
+          `Team member limit ${this.maxMembers} reached (current: ${rosterLine}). `
+          + 'Release a finished or stale teammate first (release_teammate) to free a slot.',
+          'TEAM_MEMBER_LIMIT',
+        )
       }
       await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
     })
@@ -318,6 +339,48 @@ export class TeamRoster {
       throw conflict
     }
     return { member: this.memberView(active) }
+  }
+
+  /** Perform one removal admitted before the Team runtime disposal cutoff. */
+  private async releaseAdmitted(
+    caller: Agent,
+    request: ReleaseTeammateRequest,
+  ): Promise<ReleaseTeammateResult> {
+    const membership = this.membership(caller)
+    if (membership.role !== 'lead') {
+      throw new TeamError('only the Team Lead can release teammates', 'TEAM_LEAD_REQUIRED')
+    }
+    const signal = AbortSignal.any([request.signal, this.lifecycle.signal])
+    signal.throwIfAborted()
+    const root = membership.root
+    const name = request.target.trim()
+    if (name === 'lead') throw new TeamError('the Team Lead cannot be released', 'TEAM_INVALID_TARGET')
+    let released: TeamMemberSnapshot | undefined
+    let hadLiveChild = false
+    await this.journal.transact(root.id, async () => {
+      signal.throwIfAborted()
+      const member = this.journal.state(root).members.find(candidate => candidate.name === name)
+      if (member === undefined) throw new TeamError(`teammate "${name}" not found`, 'TEAM_MEMBER_NOT_FOUND')
+      if (member.phase === 'provisioning') {
+        throw new TeamError(
+          `teammate "${name}" is still provisioning; interrupt it and release after it settles`,
+          'TEAM_INVALID_TARGET',
+        )
+      }
+      hadLiveChild = this.ctx.agents.get(member.id) !== undefined
+      await this.journal.appendAndFlush(root, 'team/member/released', {
+        version: 2,
+        teamId: TeamId(root.id),
+        memberId: member.id,
+      })
+      released = member
+    })
+    const removed = released as TeamMemberSnapshot | undefined
+    if (removed === undefined) throw new TeamError(`teammate "${name}" not found`, 'TEAM_MEMBER_NOT_FOUND')
+    // Durably removed first; the live child is drained best-effort so a stuck
+    // drain can never leave the roster holding a phantom slot.
+    await this.stopTeammates(root, [removed.id])
+    return { name: removed.name, stoppedLiveChild: hadLiveChild }
   }
 
   /** Flush the accepted initial inbox item before the Lead can commit `active`. */

@@ -8,7 +8,7 @@ import type { TeamMemberView } from '@deepseek-ai/dsh-experimental-agent-team'
 import { ReasoningEffortId } from '@deepseek-ai/dsh-llm/brand'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { InferValue, ValueSchemaSpec } from '@deepseek-ai/dsh-tools'
-import { TeamOps } from './human-tasks.ts'
+import { TeamOps, newHumanTaskId } from './human-tasks.ts'
 import type { HumanTask, HumanTaskOutcome } from './human-tasks.ts'
 
 /** Cordis plugin name. */
@@ -46,7 +46,7 @@ Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VE
 
 Use the target returned by spawn_teammate or list_agents for send_message${interrupt ? ' and interrupt_agent' : ''}, or as owner when assigning or filtering shared tasks. send_message steers a running target at its nearest step boundary and starts or resumes an inactive target. inactive means no turn is executing; it does not describe task completion, success, failure, or waiting for other agents. provisioning means member creation is in progress; failed means member creation failed. A peer message starts with its sender name. A successful send does not mean the recipient has processed it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.
 
-DST-Comet additions: when only a human can advance a page (captcha, login, email code), call human_task_create with exact click-by-click steps and a done_when post-condition — your further tool calls are then refused until any member resolves it, and human_task_wait blocks while you wait; after a resolve, re-verify done_when yourself in the preserved tab. The Team Lead parks a teammate between tool calls with lane_freeze / lane_resume instead of interrupting mid-call. team_snapshot returns the roster, per-member task load, and who waits on a human or is frozen in one call — prefer it after every wakeup. spawn_teammate accepts optional model and effort so recon can run on a cheap model and validation on a strong one.`
+DST-Comet additions: when only a human can advance a page (captcha, login, email code), call human_task_create with exact click-by-click steps and a done_when post-condition — the affected lane's further tool calls are then refused until any member resolves it, and human_task_wait blocks while you wait; after a resolve, re-verify done_when yourself in the preserved tab. The Team Lead can queue a step for a teammate with owner and stay running itself, and can track its own ask with park:false. The Team Lead parks a teammate between tool calls with lane_freeze / lane_resume instead of interrupting mid-call. release_teammate removes a finished or stale teammate, frees its member slot and name for a respawn — repurpose a lane with release + spawn instead of leaving dead members on the cap. team_snapshot returns the roster, per-member task load, and who waits on a human or is frozen in one call — prefer it after every wakeup. spawn_teammate accepts optional model and effort so recon can run on a cheap model and validation on a strong one. A wait_agent that returns user_input or inbox_message ended early because a message reached your own inbox — read the new message before waiting again.`
 }
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
@@ -100,6 +100,58 @@ async function waitForChangeGracefully(
       interrupted: true,
       message: 'wait_agent was interrupted (the user aborted the wait). Re-list with list_agents / team_snapshot before deciding the next step.',
     }
+  }
+}
+
+/** DST-Comet live-run gap (2026-10-27): a human message typed while the Lead
+ *  sat in wait_agent stayed parked as steering until the wait timed out — the
+ *  human had to Esc-abort and resend. Race the Team wait against the caller's
+ *  own inbox: any message inserted there (human input, or a peer relay that
+ *  will also notify activity) is exactly the "something changed" the caller is
+ *  waiting for, so the wait returns the moment it lands. Pending steering that
+ *  arrived before the listener attached is caught by the inbox pre-check. */
+async function waitForChangeOrInbox(
+  ctx: Context,
+  caller: Agent,
+  timeoutMs: number,
+  signal: AbortSignal,
+): Promise<InferValue<typeof WAIT_VALUE_SCHEMA>> {
+  const pendingUser = caller.inbox.nextStep.find(message => message.source.kind === 'user')
+  if (pendingUser !== undefined) {
+    return {
+      timedOut: false,
+      user_input: true,
+      message: 'user input is already pending in your inbox — read the new user message and steer the plan before waiting again.',
+    }
+  }
+  let disposeInbox: (() => void) | undefined
+  const inbox = new Promise<'user' | 'peer'>(resolve => {
+    disposeInbox = caller.ctx.on('agent/inbox/inserted', ({ message }) => {
+      resolve(message.source.kind === 'user' ? 'user' : 'peer')
+    })
+  })
+  // The losing promise may settle (or reject) after the race is decided; both
+  // branches are already observed, so no rejection escapes unhandled.
+  void inbox.then(() => undefined, () => undefined)
+  const change = waitForChangeGracefully(ctx, caller, timeoutMs, signal)
+  void change.then(() => undefined, () => undefined)
+  try {
+    return await Promise.race([
+      change,
+      inbox.then(source => source === 'user'
+        ? {
+          timedOut: false,
+          user_input: true,
+          message: 'user input arrived while waiting — read the new user message and steer the plan before waiting again.',
+        }
+        : {
+          timedOut: false,
+          inbox_message: true,
+          message: 'a peer message arrived while waiting — read it, then re-list with team_snapshot before waiting again.',
+        }),
+    ]) as InferValue<typeof WAIT_VALUE_SCHEMA>
+  } finally {
+    disposeInbox?.()
   }
 }
 
@@ -163,14 +215,28 @@ const SEND_VALUE_SCHEMA = {
   },
 } as const
 
+/** Result of removing one teammate from the roster (DST-Comet). */
+const RELEASE_VALUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    released: { type: 'boolean', required: true, const: true },
+    member: { type: 'string', required: true },
+    stopped_live_child: { type: 'boolean', required: true },
+  },
+} as const
+
 /** `noProgress` is present only on the model-only shortcut that skips the wait;
- *  `interrupted` only when the wait ended by a user abort instead of an error. */
+ *  `interrupted` only when the wait ended by a user abort instead of an error;
+ *  `user_input` / `inbox_message` when the caller's own inbox woke the wait. */
 const WAIT_VALUE_SCHEMA = {
   type: 'object',
   additionalProperties: false,
   properties: {
     timedOut: { type: 'boolean', required: true },
     interrupted: { type: 'boolean' },
+    user_input: { type: 'boolean' },
+    inbox_message: { type: 'boolean' },
     message: { type: 'string' },
     noProgress: {
       type: 'object',
@@ -412,6 +478,23 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
     })))
 
     register(scoped.tools.register(defineTool({
+      name: 'release_teammate',
+      description: 'Remove one finished or stale teammate from the roster and stop its live session: frees its member slot and its name for a respawn. Repurpose a lane by release + spawn instead of leaving dead members on the cap. Team Lead only.',
+      parameters: {
+        target: { type: 'string', required: true, description: 'Teammate target from spawn_teammate or list_agents.' },
+      },
+      output: jsonOutput(RELEASE_VALUE_SCHEMA),
+      async execute(args, exec) {
+        const caller = callingAgent(exec.agent, 'release_teammate')
+        const result = await ctx.agentTeams.releaseTeammate(caller, {
+          target: args.target,
+          signal: exec.signal,
+        })
+        return { released: true as const, member: result.name, stopped_live_child: result.stoppedLiveChild }
+      },
+    })))
+
+    register(scoped.tools.register(defineTool({
       name: 'send_message',
       description: 'Send one message to another Team member. A running target receives it at the nearest step boundary; an inactive target starts or resumes a turn.',
       parameters: {
@@ -470,7 +553,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
             },
           }
         }
-        return await waitForChangeGracefully(ctx, caller, timeoutMs, exec.signal)
+        return await waitForChangeOrInbox(ctx, caller, timeoutMs, exec.signal)
       },
     })))
 
@@ -629,7 +712,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'human_task_create',
-      description: 'Queue a human-gated step (captcha, login, email code) and park the CALLING agent: further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board.',
+      description: 'Queue a human-gated step (captcha, login, email code) and park the affected lane: that member\'s further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board. The Lead can queue for another lane with owner, or track its own step with park:false and stay running.',
       parameters: {
         title: { type: 'string', required: true, description: 'Short imperative title, e.g. "solve the Bugcrowd login captcha".' },
         steps: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact click-by-click steps for the human.' },
@@ -637,34 +720,78 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         lane: { type: 'string', description: 'Lane or engagement name for the queue badge.' },
         preserve_tab: { type: 'string', description: 'Tab identifier the human must act in.' },
         preserve_url: { type: 'string', description: 'URL the human must act on.' },
+        park: { type: 'boolean', description: 'Park the affected lane (refuse its tool calls) until resolved. Defaults true. Set false to track a human step without parking anyone — the Lead stays running.' },
+        owner: { type: 'string', description: 'Member name whose lane this task parks — lets the Team Lead queue a step for a teammate. Defaults to the caller.' },
       },
       output: jsonOutput(HUMAN_CREATE_VALUE_SCHEMA),
       async execute(args, exec) {
         const caller = callingAgent(exec.agent, 'human_task_create')
         const membership = ctx.agentTeams.membership(caller)
+        // Resolve the lane this task parks: the caller by default, or another
+        // member the Lead queues for.
+        let parkedId = caller.id
+        let parkedName = membership.name
+        let parkedIsTeammate = membership.role === 'teammate'
+        if (args.owner !== undefined && args.owner !== 'lead' && args.owner !== membership.name) {
+          const target = ctx.agentTeams.listMembers(caller)
+            .find(member => member.name === args.owner && member.role === 'teammate')
+          if (target === undefined) throw new Error(`teammate "${args.owner}" not found`)
+          if (membership.role !== 'lead') throw new Error('only the Team Lead can queue a human task for another member')
+          parkedId = target.id
+          parkedName = target.name
+          parkedIsTeammate = true
+        }
         if (ops.freezeOf(caller.id) !== undefined) {
           throw new Error('lane is frozen by the Team Lead; message the Lead instead of queueing a human task')
         }
+        if (ops.freezeOf(parkedId) !== undefined) {
+          throw new Error(`lane "${parkedName}" is frozen; lane_resume it before queueing a human task for it`)
+        }
+        const park = args.park !== false
+        // Generate the id here so the board-mirror description can embed it in
+        // a machine-readable footer the TUI human-wall panel parses.
+        const taskId = newHumanTaskId()
+        const meta = {
+          id: taskId,
+          lane: args.lane ?? parkedName,
+          member: parkedName,
+          ...args.preserve_tab === undefined ? {} : { preserve_tab: args.preserve_tab },
+          ...args.preserve_url === undefined ? {} : { preserve_url: args.preserve_url },
+          ...park ? {} : { park: false },
+        }
         // Board mirror first so the queue is visible in the TUI task board from
-        // the moment the agent parks.
+        // the moment the lane parks.
         const boardTask = await ctx.agentTeams.createTask(caller, {
           subject: `[human] ${args.title}`,
-          description: `${args.steps.map((step, at) => `${at + 1}. ${step}`).join('\n')}\n\nDone when: ${args.done_when}`,
+          description: `${args.steps.map((step, at) => `${at + 1}. ${step}`).join('\n')}\n\nDone when: ${args.done_when}\n\nhuman-meta: ${JSON.stringify(meta)}`,
         })
         const claimed = await ctx.agentTeams.updateTask(caller, {
           taskId: boardTask.id,
           expectedRevision: boardTask.revision,
           action: 'claim',
         })
-        const task = ops.create(membership.id, caller.id, membership.name, {
+        let boardRevision = claimed.revision
+        if (parkedIsTeammate && parkedName !== membership.name) {
+          // The Lead queued for a lane: attribute the mirror to that lane so
+          // the board reads "waiting on lane X", not "the Lead is doing this".
+          const reassigned = await ctx.agentTeams.updateTask(caller, {
+            taskId: boardTask.id,
+            expectedRevision: claimed.revision,
+            action: 'reassign',
+            owner: parkedName,
+          })
+          boardRevision = reassigned.revision
+        }
+        const task = ops.create(membership.id, parkedId, parkedName, {
+          id: taskId,
           ...(args.lane === undefined ? {} : { lane: args.lane }),
           title: args.title,
           steps: args.steps,
           doneWhen: args.done_when,
           ...(args.preserve_tab === undefined ? {} : { preserveTab: args.preserve_tab }),
           ...(args.preserve_url === undefined ? {} : { preserveUrl: args.preserve_url }),
-        })
-        ops.attachBoardTask(task.id, boardTask.id, claimed.revision)
+        }, { parkMemberId: park ? parkedId : null })
+        ops.attachBoardTask(task.id, boardTask.id, boardRevision)
         // Wake the Mother explicitly (DST-Comet live-run gap): the board
         // mirror only wakes Lead-side waiters that were ALREADY waiting when
         // the task appeared — a Lead that calls wait_agent afterwards sleeps

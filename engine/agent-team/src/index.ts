@@ -18,6 +18,8 @@ import { TeamId, TeamTaskId } from './types.ts'
 import type {
   Config,
   CreateTeamTaskRequest,
+  ReleaseTeammateRequest,
+  ReleaseTeammateResult,
   SendTeamMessageRequest,
   SendTeamMessageResult,
   SpawnTeammateRequest,
@@ -135,6 +137,17 @@ export class TeamService extends Service {
    */
   async spawnTeammate(caller: Agent, request: SpawnTeammateRequest): Promise<SpawnTeammateResult> {
     return await this.roster.spawn(caller, request)
+  }
+
+  /**
+   * Remove one finished or stale teammate from the durable roster and stop its
+   * live child (DST-Comet: release_teammate). Frees the member slot and name.
+   * @param caller - exact live Lead Agent.
+   * @param request - target name and cancellation.
+   * @returns the removed name and whether a live child had to be drained.
+   */
+  async releaseTeammate(caller: Agent, request: ReleaseTeammateRequest): Promise<ReleaseTeammateResult> {
+    return await this.roster.release(caller, request)
   }
 
   /**

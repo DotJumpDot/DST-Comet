@@ -104,6 +104,12 @@ const teamMemberEventSchema = z.object({
   member: teamMemberSnapshotSchema,
 }).strict() as z.ZodType<SessionEventMap['team/member']>
 
+const teamMemberReleasedEventSchema = z.object({
+  version: z.literal(2),
+  teamId: teamIdSchema,
+  memberId: sessionIdSchema,
+}).strict() as z.ZodType<SessionEventMap['team/member/released']>
+
 const teamTaskEventSchema = z.object({
   version: z.literal(2),
   teamId: teamIdSchema,
@@ -171,6 +177,7 @@ const teamProjectionEntrySchema = z.object({
 /** Whether one event belongs to the Team domain. */
 export type TeamEventType =
   | 'team/member'
+  | 'team/member/released'
   | 'team/task'
   | 'team/message/queued'
   | 'team/message/delivered'
@@ -185,6 +192,7 @@ type TeamSessionEvent = SessionEvent<TeamEventType>
  */
 export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
   return event.type === 'team/member'
+    || event.type === 'team/member/released'
     || event.type === 'team/task'
     || event.type === 'team/message/queued'
     || event.type === 'team/message/delivered'
@@ -204,6 +212,8 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
   switch (event.type) {
     case 'team/member':
       return { ...event, data: parsePersisted(event.type, teamMemberEventSchema, event.data) }
+    case 'team/member/released':
+      return { ...event, data: parsePersisted(event.type, teamMemberReleasedEventSchema, event.data) }
     case 'team/task':
       return { ...event, data: parsePersisted(event.type, teamTaskEventSchema, event.data) }
     case 'team/message/queued':
@@ -260,6 +270,20 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
         }
       }
       return { ...state, members: replaceAt(state.members, index, member) }
+    }
+    case 'team/member/released': {
+      // DST-Comet: release_teammate removes the member from the projected
+      // roster entirely, freeing its slot and name. Owned tasks keep their
+      // ownerId and degrade to unowned; historical messages keep their
+      // senderName snapshots, so attribution survives the removal.
+      const prior = state.members.find(candidate => candidate.id === event.data.memberId)
+      if (prior === undefined) {
+        throw new Error(`released teammate "${event.data.memberId}" is not on the roster`)
+      }
+      if (prior.phase === 'provisioning') {
+        throw new Error(`teammate "${prior.name}" cannot be released while provisioning`)
+      }
+      return { ...state, members: state.members.filter(candidate => candidate.id !== event.data.memberId) }
     }
     case 'team/task': {
       const task = event.data.task

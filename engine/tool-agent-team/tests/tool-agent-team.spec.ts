@@ -27,11 +27,12 @@ const mateView = {
 function fakeCtx() {
   const registered: Array<{ name: string; definition: any }> = []
   const guards: Array<(exec: any) => string | undefined> = []
-  const handlers = new Map<string, Array<() => unknown>>()
+  const handlers = new Map<string, Array<(payload: any) => void>>()
   const tasks: Array<Record<string, unknown>> = []
   let nextRevision = 1
   const lead: any = {
     id: 'sess-lead',
+    inbox: { nextStep: [] as Array<{ source: { kind: string } }>, nextTurn: [] },
     ctx: {
       systemPrompt: {
         section: () => () => undefined,
@@ -40,6 +41,13 @@ function fakeCtx() {
         getContextOrder: () => 20,
       },
       tools: { register: (definition: any) => { registered.push({ name: definition.name, definition }) } },
+      on: (event: string, handler: (payload: any) => void) => {
+        handlers.set(event, [...(handlers.get(event) ?? []), handler])
+        return () => {
+          const list = (handlers.get(event) ?? []).filter(candidate => candidate !== handler)
+          handlers.set(event, list)
+        }
+      },
     },
   }
   const ctx: any = {
@@ -64,15 +72,23 @@ function fakeCtx() {
         assert.ok(task !== undefined, 'board task exists')
         assert.equal(task.revision, request.expectedRevision, 'CAS revision matches')
         task.revision = nextRevision++
-        task.status = request.action === 'claim' ? 'in_progress' : request.action === 'complete' ? 'completed' : task.status
+        if (request.action === 'claim') task.status = 'in_progress'
+        if (request.action === 'complete') task.status = 'completed'
+        if (request.action === 'reassign') task.ownerName = request.owner
         return { ...task }
       },
       sendMessage: async () => ({ messageId: 'm1' }),
       spawnTeammate: async () => ({ member: mateView }),
+      releaseTeammate: async () => ({ name: 'scout', stoppedLiveChild: true }),
+      waitForChange: async () => ({ timedOut: true }),
     },
     auditPath: join(mkdtempSync(join(tmpdir(), 'toolteam-')), 'audit.jsonl'),
   }
-  return { ctx, lead, registered, guards, tasks }
+  /** Fire one agent-scoped event on the Lead's context. */
+  const emitLead = (event: string, payload: unknown): void => {
+    for (const handler of handlers.get(event) ?? []) handler(payload)
+  }
+  return { ctx, lead, registered, guards, tasks, emitLead }
 }
 
 const exec = (agent: unknown): any => ({ agent, signal: new AbortController().signal })
@@ -82,7 +98,7 @@ test('apply installs the full tool set including the DST-Comet additions', () =>
   mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
   const names = registered.map(row => row.name)
   for (const expected of [
-    'spawn_teammate', 'send_message', 'list_agents', 'wait_agent', 'team_task_create', 'team_task_list',
+    'spawn_teammate', 'release_teammate', 'send_message', 'list_agents', 'wait_agent', 'team_task_create', 'team_task_list',
     'team_task_get', 'team_task_update', 'team_snapshot', 'human_task_create', 'human_task_list',
     'human_task_resolve', 'human_task_wait', 'lane_freeze', 'lane_resume',
   ]) {
@@ -234,4 +250,111 @@ test('human_task_create by a teammate messages the Lead (Mother wake-up gap)', a
   assert.equal(sent[0]!.target, 'lead')
   assert.match(sent[0]!.text, /human wall: enter the emailed OTP/)
   assert.match(sent[0]!.text, /klaviyo/)
+})
+
+test('human_task_create embeds a machine-readable footer the TUI panel parses', async () => {
+  const { ctx, lead, registered, tasks } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const create = registered.find(row => row.name === 'human_task_create')!.definition
+  const result = await create.execute(
+    { title: 'solve the captcha', steps: ['click the box'], done_when: 'dashboard', lane: 'flourish', preserve_url: 'https://app.flourish.studio/register' },
+    exec(lead),
+  )
+  const task = result.task as TaskView
+  const mirror = tasks[0] as Record<string, any>
+  const footer = /human-meta: (\{.*\})/.exec(String(mirror.description))
+  assert.ok(footer !== null, 'mirror description carries the human-meta footer')
+  const meta = JSON.parse(footer![1]!)
+  assert.equal(meta.id, task.id)
+  assert.equal(meta.lane, 'flourish')
+  assert.equal(meta.member, 'lead')
+  assert.equal(meta.preserve_url, 'https://app.flourish.studio/register')
+})
+
+test('human_task_create park:false queues without parking the caller', async () => {
+  const { ctx, lead, registered, guards } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const guard = guards[0]!
+  const create = registered.find(row => row.name === 'human_task_create')!.definition
+  const result = await create.execute(
+    { title: 'human will verify email later', steps: ['check inbox'], done_when: 'email verified', park: false },
+    exec(lead),
+  )
+  assert.equal((result.task as TaskView).status, 'waiting')
+  // The Lead stays running: no gated call is refused.
+  assert.equal(guard({ agent: lead, name: 'pwsh' }), undefined)
+})
+
+test('human_task_create owner:<teammate> parks that lane, not the Lead', async () => {
+  const { ctx, lead, registered, guards, tasks } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const guard = guards[0]!
+  const create = registered.find(row => row.name === 'human_task_create')!.definition
+  const mate: any = { id: 'sess-mate' }
+  ctx.agentTeams.tryMembership = (agent: any) => agent === lead
+    ? { id: 'sess-lead', root: lead, role: 'lead', name: 'lead' }
+    : { id: 'sess-mate', root: lead, role: 'teammate', name: 'scout' }
+  const result = await create.execute(
+    { title: 'solve the login captcha', steps: ['click the box'], done_when: 'dashboard', owner: 'scout' },
+    exec(lead),
+  )
+  const task = result.task as TaskView
+  assert.equal(task.member, 'scout')
+  // The Lead keeps working; the queued lane is parked.
+  assert.equal(guard({ agent: lead, name: 'pwsh' }), undefined)
+  assert.ok(guard({ agent: mate, name: 'pwsh' })?.includes(task.id))
+  // The board mirror is attributed to the lane, not the Lead.
+  const mirror = tasks[0] as Record<string, any>
+  assert.equal(mirror.ownerName, 'scout')
+})
+
+test('release_teammate threads to the service with the target name', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const released: Array<Record<string, unknown>> = []
+  ctx.agentTeams.releaseTeammate = async (_caller: unknown, request: Record<string, unknown>) => {
+    released.push(request)
+    return { name: 'old-lane', stoppedLiveChild: true }
+  }
+  const release = registered.find(row => row.name === 'release_teammate')!.definition
+  const result = await release.execute({ target: 'old-lane' }, exec(lead))
+  assert.equal(result.released, true)
+  assert.equal(result.member, 'old-lane')
+  assert.equal(result.stopped_live_child, true)
+  assert.deepEqual(released.map(row => row.target), ['old-lane'])
+})
+
+test('wait_agent wakes the moment user input lands in the caller inbox', async () => {
+  const { ctx, lead, registered, emitLead } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const wait = registered.find(row => row.name === 'wait_agent')!.definition
+  // The Team wait never settles first: the inbox insertion must win the race.
+  ctx.agentTeams.waitForChange = () => new Promise(() => undefined)
+  const pending = wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  await new Promise(resolve => setImmediate(resolve))
+  emitLead('agent/inbox/inserted', { agent: lead, message: { source: { kind: 'user' } } })
+  const result = await pending
+  assert.equal(result.timedOut, false)
+  assert.equal(result.user_input, true)
+  assert.match(result.message, /user input/)
+
+  // A peer relay wakes the wait too, labeled as a peer message.
+  const peerWait = wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  await new Promise(resolve => setImmediate(resolve))
+  emitLead('agent/inbox/inserted', { agent: lead, message: { source: { kind: 'agent-message' } } })
+  const peerResult = await peerWait
+  assert.equal(peerResult.timedOut, false)
+  assert.equal(peerResult.inbox_message, true)
+})
+
+test('wait_agent returns immediately when user steering is already pending', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const wait = registered.find(row => row.name === 'wait_agent')!.definition
+  let teamWaitCalls = 0
+  ctx.agentTeams.waitForChange = async () => { teamWaitCalls += 1; return { timedOut: true } }
+  lead.inbox.nextStep.push({ source: { kind: 'user' } })
+  const result = await wait.execute({ timeout_ms: 60_000 }, exec(lead))
+  assert.equal(result.user_input, true)
+  assert.equal(teamWaitCalls, 0, 'the pending steering is answered without entering the Team wait')
 })

@@ -61,12 +61,29 @@ export interface FreezeRecord {
 
 /** Input accepted by {@link TeamOps.create}. */
 export interface HumanTaskInput {
+  /** Explicit task id (supplied by the caller when the board-mirror description must embed it). */
+  readonly id?: string
   readonly lane?: string
   readonly title: string
   readonly steps: readonly string[]
   readonly doneWhen: string
   readonly preserveTab?: string
   readonly preserveUrl?: string
+}
+
+/** Parking options for {@link TeamOps.create}. */
+export interface CreateOptions {
+  /**
+   * Member whose lane parks on this task. Defaults to the creating member;
+   * pass another member id when the Lead queues a step for a lane, or null to
+   * queue a human step without parking anyone (the Lead stays running).
+   */
+  readonly parkMemberId?: string | null
+}
+
+/** Generate the model-facing human task id (also usable before create). */
+export function newHumanTaskId(): string {
+  return `ht-${randomUUID().slice(0, 8)}`
 }
 
 /**
@@ -133,23 +150,31 @@ export class TeamOps {
   }
 
   /**
-   * Queue one human-gated step and park the calling agent.
+   * Queue one human-gated step and park the affected lane.
    * @param teamId - Team identity for grouping.
-   * @param memberId - calling agent id used as the pause key.
+   * @param memberId - member whose lane this task is for (wake messages address it).
    * @param memberName - model-facing member name for wake messages.
    * @param input - task content.
+   * @param options - parking selection; defaults to parking the calling member.
    * @returns the queued task.
-   * @throws when the agent already waits on an open task.
+   * @throws when the parked member already waits on an open task.
    */
-  create(teamId: string, memberId: string, memberName: string, input: HumanTaskInput): HumanTask {
-    const existing = this.pausedTaskOf(memberId)
+  create(
+    teamId: string,
+    memberId: string,
+    memberName: string,
+    input: HumanTaskInput,
+    options?: CreateOptions,
+  ): HumanTask {
+    const parkMemberId = options?.parkMemberId !== undefined ? options.parkMemberId : memberId
+    const existing = parkMemberId === null ? undefined : this.pausedTaskOf(parkMemberId)
     if (existing !== undefined) {
       throw new Error(
         `agent "${memberName}" already waits on human task ${existing.id} ("${existing.title}"); resolve it first`,
       )
     }
     const task: HumanTask = {
-      id: `ht-${randomUUID().slice(0, 8)}`,
+      id: input.id ?? newHumanTaskId(),
       teamId,
       ...(input.lane === undefined ? {} : { lane: input.lane }),
       title: input.title,
@@ -163,7 +188,7 @@ export class TeamOps {
     }
     this.tasks.set(task.id, task)
     this.order.push(task.id)
-    this.paused.set(memberId, task.id)
+    if (parkMemberId !== null) this.paused.set(parkMemberId, task.id)
     this.audit('human_task_created', {
       task_id: task.id,
       team_id: teamId,

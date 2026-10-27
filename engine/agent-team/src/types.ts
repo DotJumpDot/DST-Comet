@@ -191,6 +191,18 @@ export interface SpawnTeammateResult {
   readonly member: TeamMemberView
 }
 
+/** Input for releasing one teammate from the durable roster (DST-Comet). */
+export interface ReleaseTeammateRequest {
+  readonly target: string
+  readonly signal: AbortSignal
+}
+
+/** Result after one teammate left the roster and its live child was drained. */
+export interface ReleaseTeammateResult {
+  readonly name: string
+  readonly stoppedLiveChild: boolean
+}
+
 /** Input for one direct peer-message attempt. */
 export interface SendTeamMessageRequest {
   readonly target: string
@@ -243,6 +255,12 @@ declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /** Whole teammate lifecycle value, stored only in the Team Lead Session. */
     'team/member': { version: 2; teamId: TeamId; member: TeamMemberSnapshot }
+    /**
+     * Durable teammate removal (DST-Comet: release_teammate). Drops the member
+     * from the projected roster, freeing its member slot and its name for a
+     * later respawn; stored only in the Team Lead Session.
+     */
+    'team/member/released': { version: 2; teamId: TeamId; memberId: SessionId }
     /** Whole shared-task value, stored only in the Team Lead Session. */
     'team/task': { version: 2; teamId: TeamId; task: TeamTaskSnapshot }
     /** Historical mailbox enqueue; new sends use the target Agent inbox. */
