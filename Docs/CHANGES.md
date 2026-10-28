@@ -4,6 +4,31 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-29 (later) — run-8 proposals: fixture/diff/session/injectlab primitives (Constellation 59 → 77 tools)
+
+| File | Why |
+|---|---|
+| `Advice/2026-10-29-run7-new-mcp-proposals.md` | (untracked, live-run notes) status header: §1a/1b/2/3/4/5-shape/6/7 built inside Constellation; §1c (per-product recipe registry), the guarded_proxy MITM, evidence_map_to_report, scanner/auto-submission/report-prose honestly NOT built |
+
+Constellation-MCP (own repo) commit `8ef07be` — no new MCP project: the
+primitives live inside the one audited surface. `src/tools/fixture.ts`
+(fixture_publish/hits/forge/list: shared cloudflared tunnel via an OobStore
+route hook; canary_seen scoring; pure-Node OOXML zip writer + PDF 1.4
+generator), `src/tools/diff.ts` (diff_pair verdict matrix + firstJsonDiff),
+`src/tools/session.ts` (session_verify/watch/status/proof_set with
+per-site must_contain/must_not_contain rules; the account-chooser trap
+fails by design), `src/tools/evidence.ts` (hash-chained append-only log +
+verify), `src/tools/dupcheck.ts` (NVD keyword search + advisory-id
+extraction), `src/tools/injectlab.ts` (six mechanical framings, one send
+per variant, artifact-based compliance), `src/tools/http.ts` (http_replay
+capture ring + verbatim-override replay; bodies >20 KB saved whole),
+`src/tools/oob.ts` (route hook for /f/ content), `src/browser/session.ts`
+(networkObserver + scopeViolations, wired for launch AND CDP attach),
+`src/browser/tools.ts` (attach installs the scope observer;
+browser_scope_violations; map warning; evidence_capture chains),
+`src/server.ts` (wiring + instructions). Smoke 59 → 77 tools; unit suite
+38 → 45.
+
 ## 2026-10-29 — run-7 asks: plugin-record releases, inject-free context tools, external-profile cookies, CDP attach
 
 | File | Why |
