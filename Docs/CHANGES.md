@@ -4,6 +4,14 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP smoke round 4 patch `5b7c9eb`: `src/tools/recipe.ts`
+(fixture_recipe_set/list/run — the §1c recipe registry + browser-driven
+executor with per-step owner switching, $var capture interpolation, run
+audit; 77 -> 80 tools), `src/browser/tools.ts` (upload failure dump
+self-interprets the signed-out surface; snapshotOf retries a trivial
+unhydrated-SPA frame once after a settle wait), `src/tools/injectlab.ts`
+(canary-set-without-fixture wording).
+
 Constellation-MCP smoke round 3 patch (50/50 tests): `src/browser/tools.ts`
 (assessUploadText/assessUpload — browser_upload reports whether the PRODUCT
 accepted the file, with a signed-out warning; the uploads.jsonl record
