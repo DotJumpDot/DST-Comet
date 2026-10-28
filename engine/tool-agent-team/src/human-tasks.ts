@@ -35,14 +35,17 @@ export interface HumanTask {
   readonly id: string
   readonly teamId: string
   readonly lane?: string
-  readonly title: string
-  readonly steps: readonly string[]
-  readonly doneWhen: string
+  title: string
+  steps: string[]
+  doneWhen: string
   readonly memberName: string
   readonly memberId: string
   readonly preserveTab?: string
   readonly preserveUrl?: string
   readonly createdAt: string
+  /** Idempotency key (run-7 P1-5): the Lead and the lane both raised the same
+   *  wall 19 s apart and the human saw two near-identical asks. */
+  readonly dedupeKey?: string
   /** Shared task-board mirror task id and its last-seen revision (written
    *  once after the board task exists, so they are mutable fields). */
   boardTaskId?: string
@@ -71,6 +74,20 @@ export interface HumanTaskInput {
   readonly doneWhen: string
   readonly preserveTab?: string
   readonly preserveUrl?: string
+  /** Idempotency key: one open task per key within the dedupe window. */
+  readonly dedupeKey?: string
+}
+
+/** How long a dedupe_key suppresses a second identical ask (ms). */
+export const DEDUPE_WINDOW_MS = 15 * 60_000
+
+/** Fields human_task_update may edit on an open wall (run-7 P1-5: a tunnel
+ *  URL was baked into the steps and the only fix was resolve-as-skip and
+ *  re-raise). */
+export interface HumanTaskEdit {
+  readonly title?: string
+  readonly steps?: readonly string[]
+  readonly doneWhen?: string
 }
 
 /** Parking options for {@link TeamOps.create}. */
@@ -180,12 +197,13 @@ export class TeamOps {
       teamId,
       ...(input.lane === undefined ? {} : { lane: input.lane }),
       title: input.title,
-      steps: input.steps,
+      steps: [...input.steps],
       doneWhen: input.doneWhen,
       memberName,
       memberId,
       ...(input.preserveTab === undefined ? {} : { preserveTab: input.preserveTab }),
       ...(input.preserveUrl === undefined ? {} : { preserveUrl: input.preserveUrl }),
+      ...(input.dedupeKey === undefined || input.dedupeKey === '' ? {} : { dedupeKey: input.dedupeKey }),
       createdAt: new Date().toISOString(),
     }
     this.tasks.set(task.id, task)
@@ -197,7 +215,43 @@ export class TeamOps {
       lane: task.lane,
       member: memberName,
       title: task.title,
+      ...(task.dedupeKey === undefined ? {} : { dedupe_key: task.dedupeKey }),
     })
+    return task
+  }
+
+  /**
+   * Idempotency lookup (run-7 P1-5): the open task carrying this dedupe key,
+   * when it was created within the dedupe window. Same key within the window
+   * returns the existing task instead of raising a second near-identical wall.
+   */
+  openTaskByDedupeKey(teamId: string, dedupeKey: string, windowMs: number = DEDUPE_WINDOW_MS): HumanTask | undefined {
+    if (dedupeKey === '') return undefined
+    const cutoff = Date.now() - windowMs
+    for (let at = this.order.length - 1; at >= 0; at--) {
+      const task = this.tasks.get(this.order[at]!)
+      if (task === undefined) continue
+      if (task.resolvedAt !== undefined) continue
+      if (task.dedupeKey !== dedupeKey || task.teamId !== teamId) continue
+      if (Date.parse(task.createdAt) < cutoff) continue
+      return task
+    }
+    return undefined
+  }
+
+  /**
+   * Edit an open wall's title/steps/done_when (run-7 P1-5). Returns the
+   * edited task; the caller refreshes the board-mirror description.
+   * @throws for unknown or already-resolved tasks.
+   */
+  edit(taskId: string, edit: HumanTaskEdit): HumanTask {
+    const task = this.tasks.get(taskId)
+    if (task === undefined) throw new Error(`human task ${taskId} not found`)
+    if (task.resolvedAt !== undefined) throw new Error(`human task ${taskId} was already resolved as ${task.outcome}; raise a new one`)
+    if (edit.title !== undefined) task.title = edit.title
+    if (edit.steps !== undefined) task.steps = [...edit.steps]
+    if (edit.doneWhen !== undefined) task.doneWhen = edit.doneWhen
+    this.audit('human_task_updated', { task_id: taskId, fields: Object.keys(edit).join(',') })
     return task
   }
 

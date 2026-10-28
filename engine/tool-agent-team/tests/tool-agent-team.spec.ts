@@ -152,15 +152,26 @@ test('human_task_create parks the caller, mirrors the board, guard enforces, res
   const create = registered.find(row => row.name === 'human_task_create')!.definition
   const resolve = registered.find(row => row.name === 'human_task_resolve')!.definition
 
-  const result = await create.execute(
+  // Run-7 P1-5: a Lead wall WITHOUT owner no longer parks the Lead itself —
+  // the coordinator keeps its tools while the lane runs. Park explicitly.
+  const unParked = await create.execute(
     { title: 'solve the login captcha', steps: ['click the box'], done_when: 'page shows the dashboard' },
+    exec(lead),
+  )
+  const unParkedTask = unParked.task as TaskView
+  assert.equal(guard({ agent: lead, name: 'pwsh' }), undefined, 'Lead stays running by default')
+  await resolve.execute({ task_id: unParkedTask.id, outcome: 'skip', summary: 're-raised parked' }, exec(lead))
+  const result = await create.execute(
+    { title: 'solve the login captcha', steps: ['click the box'], done_when: 'page shows the dashboard', park: true },
     exec(lead),
   )
   const task = result.task as TaskView
   assert.equal(task.member, 'lead')
   assert.equal(task.status, 'waiting')
-  // The mirror task exists, claimed by the caller.
-  const mirror = tasks[0] as Record<string, any>
+  // The mirror task exists, claimed by the caller (pick THIS task's mirror —
+  // the resolved-as-skip re-raise earlier in the test left another one).
+  const mirror = (tasks as Array<Record<string, any>>).find(row => row.id === task.board_task_id)!
+  assert.ok(mirror !== undefined, 'the parked wall has a board mirror')
   assert.equal(mirror.subject, '[human] solve the login captcha')
   assert.equal(mirror.status, 'in_progress')
   assert.equal(task.board_task_id, mirror.id)
@@ -234,7 +245,7 @@ test('team_snapshot folds roster, task load, and park state into one call', asyn
     { id: 't2', subject: 'b', status: 'pending', ownerName: 'scout' },
     { id: 't3', subject: 'c', status: 'pending', ownerName: 'lead' },
   ]
-  await create.execute({ title: 'captcha', steps: [], done_when: 'x' }, exec(lead))
+  await create.execute({ title: 'captcha', steps: [], done_when: 'x', park: true }, exec(lead))
   const snap = await snapshot.execute({}, exec(lead))
   assert.equal(snap.frozenLanes, 0)
   assert.equal(snap.openHumanTasks, 1)

@@ -31,7 +31,7 @@
   "scripts": {
     "build": "tsc -p tsconfig.build.json && tsdown -c tsdown.config.ts",
     "typecheck": "tsc -p tsconfig.json",
-    "test": "node --import tsx/esm --test tests/tool-agent-team.spec.ts tests/human-tasks.spec.ts"
+    "test": "node --import tsx/esm --test tests/tool-agent-team.spec.ts tests/human-tasks.spec.ts tests/release-projection.spec.ts"
   },
   "dependencies": {
     "@deepseek-ai/schemastery": "~3.18.5"

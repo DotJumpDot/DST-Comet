@@ -311,6 +311,16 @@ const HUMAN_CREATE_VALUE_SCHEMA = {
   additionalProperties: false,
   properties: {
     task: { ...HUMAN_TASK_VIEW_SCHEMA, required: true },
+    deduplicated: { type: 'boolean', description: 'True when a dedupe_key matched an open task and the EXISTING wall was returned instead of raising a second one.' },
+  },
+} as const
+
+const HUMAN_UPDATE_VALUE_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    task: { ...HUMAN_TASK_VIEW_SCHEMA, required: true },
+    board_updated: { type: 'boolean', required: true, description: 'Whether the shared-board mirror description was refreshed too.' },
   },
 } as const
 
@@ -721,7 +731,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'human_task_create',
-      description: 'Queue a human-gated step (captcha, login, email code) and park the affected lane: that member\'s further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board. The Lead can queue for another lane with owner, or track its own step with park:false and stay running.',
+      description: 'Queue a human-gated step (captcha, login, email code) and park the affected lane: that member\'s further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board. Parking defaults are role-aware (run-7): a TEAMMATE parks itself; the LEAD does NOT park itself unless it passes park:true — the coordinator must keep its tools while lanes run. Pass owner:<teammate> to queue a step for a lane.',
       parameters: {
         title: { type: 'string', required: true, description: 'Short imperative title, e.g. "solve the Bugcrowd login captcha".' },
         steps: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact click-by-click steps for the human.' },
@@ -729,8 +739,9 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         lane: { type: 'string', description: 'Lane or engagement name for the queue badge.' },
         preserve_tab: { type: 'string', description: 'Tab identifier the human must act in.' },
         preserve_url: { type: 'string', description: 'URL the human must act on.' },
-        park: { type: 'boolean', description: 'Park the affected lane (refuse its tool calls) until resolved. Defaults true. Set false to track a human step without parking anyone — the Lead stays running.' },
+        park: { type: 'boolean', description: 'Override the parking default. Default: teammates park themselves; the Lead does not park itself.' },
         owner: { type: 'string', description: 'Member name whose lane this task parks — lets the Team Lead queue a step for a teammate. Defaults to the caller.' },
+        dedupe_key: { type: 'string', description: 'Idempotency key: when an OPEN task with the same key exists (within 15 minutes) it is returned as-is — the Lead and the lane raising the same wall seconds apart must not produce two asks for the human.' },
       },
       output: jsonOutput(HUMAN_CREATE_VALUE_SCHEMA),
       async execute(args, exec) {
@@ -756,7 +767,23 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         if (ops.freezeOf(parkedId) !== undefined) {
           throw new Error(`lane "${parkedName}" is frozen; lane_resume it before queueing a human task for it`)
         }
-        const park = args.park !== false
+        // Idempotency (run-7 P1-5): same dedupe_key + open task within the
+        // window returns the existing wall — the Lead and the lane raising the
+        // same ask 19 s apart must not show the human two walls.
+        if (typeof args.dedupe_key === 'string' && args.dedupe_key !== '') {
+          const existing = ops.openTaskByDedupeKey(membership.id, args.dedupe_key)
+          if (existing !== undefined) {
+            return { task: humanTaskView(existing), deduplicated: true }
+          }
+        }
+        // Parking default is role-aware (run-7 P1-5): a teammate parks itself;
+        // the Lead does NOT park itself — the coordinator lost its tools while
+        // the lane kept running. An explicit park overrides; an owner: lane
+        // always parks that lane.
+        const parksTeammateLane = parkedId !== caller.id
+        const park = args.park === undefined
+          ? (parksTeammateLane || membership.role === 'teammate')
+          : args.park === true
         // Generate the id here so the board-mirror description can embed it in
         // a machine-readable footer the TUI human-wall panel parses.
         const taskId = newHumanTaskId()
@@ -799,6 +826,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           doneWhen: args.done_when,
           ...(args.preserve_tab === undefined ? {} : { preserveTab: args.preserve_tab }),
           ...(args.preserve_url === undefined ? {} : { preserveUrl: args.preserve_url }),
+          ...(typeof args.dedupe_key === 'string' && args.dedupe_key !== '' ? { dedupeKey: args.dedupe_key } : {}),
         }, { parkMemberId: park ? parkedId : null })
         ops.attachBoardTask(task.id, boardTask.id, boardRevision)
         // Wake the Mother explicitly (DST-Comet live-run gap): the board
@@ -840,6 +868,57 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           at: record.at,
         }))
         return Promise.resolve({ tasks, frozenLanes })
+      },
+    })))
+
+    register(scoped.tools.register(defineTool({
+      name: 'human_task_update',
+      description: 'Edit an OPEN human wall\'s title/steps/done_when in place (run-7 P1-5: a tunnel URL baked into the steps previously forced resolve-as-skip and a re-raise). The board mirror is refreshed with the same edit. Any member may update.',
+      parameters: {
+        task_id: { type: 'string', required: true, description: 'Human task id from human_task_create or human_task_list.' },
+        title: { type: 'string', description: 'New title (optional).' },
+        steps: { type: 'array', items: { type: 'string' }, description: 'Replacement steps (optional, replaces the whole list).' },
+        done_when: { type: 'string', description: 'New post-condition (optional).' },
+      },
+      output: jsonOutput(HUMAN_UPDATE_VALUE_SCHEMA),
+      async execute(args, exec) {
+        const caller = callingAgent(exec.agent, 'human_task_update')
+        if (args.title === undefined && args.steps === undefined && args.done_when === undefined) {
+          throw new Error('provide at least one of title, steps, done_when')
+        }
+        const task = ops.edit(args.task_id, {
+          ...(args.title === undefined ? {} : { title: args.title }),
+          ...(args.steps === undefined ? {} : { steps: args.steps }),
+          ...(args.done_when === undefined ? {} : { doneWhen: args.done_when }),
+        })
+        // Refresh the board mirror so the TUI human-wall panel shows the new
+        // steps, not the stale ones (best-effort: one re-get for a drifted
+        // revision; a failed mirror edit never fails the queue edit).
+        let board_updated = false
+        if (task.boardTaskId !== undefined) {
+          try {
+            const meta = {
+              id: task.id,
+              lane: task.lane ?? task.memberName,
+              member: task.memberName,
+              ...(task.preserveTab === undefined ? {} : { preserve_tab: task.preserveTab }),
+              ...(task.preserveUrl === undefined ? {} : { preserve_url: task.preserveUrl }),
+            }
+            const description = `${task.steps.map((step, at) => `${at + 1}. ${step}`).join('\n')}\n\nDone when: ${task.doneWhen}\n\nhuman-meta: ${JSON.stringify(meta)}`
+            let boardTask = await ctx.agentTeams.getTask(caller, TeamTaskId(task.boardTaskId))
+            const updated = await ctx.agentTeams.updateTask(caller, {
+              taskId: TeamTaskId(task.boardTaskId),
+              expectedRevision: boardTask.revision,
+              action: 'edit',
+              ...(task.title === undefined ? {} : { subject: `[human] ${task.title}` }),
+              description,
+            })
+            task.boardRevision = updated.revision
+            board_updated = true
+          } catch { /* mirror refresh is best-effort */ }
+        }
+        ops.audit('human_task_board_refreshed', { task_id: task.id, board_updated })
+        return { task: humanTaskView(task), board_updated }
       },
     })))
 

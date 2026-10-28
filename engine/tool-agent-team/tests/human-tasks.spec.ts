@@ -90,3 +90,31 @@ test('audit failures never break the flow', () => {
   ops.resolve(task.id, 'done', 'lead')
   assert.equal(ops.pausedTaskOf('a1'), undefined)
 })
+
+test('run-7 P1-5: dedupe_key returns the open wall instead of a second ask', () => {
+  const ops = new TeamOps(join(mkdtempSync(join(tmpdir(), 'ht-')), 'audit.jsonl'))
+  const first = ops.create('team-1', 'a1', 'lead', { title: 'tunnel wall', steps: ['x'], doneWhen: 'y', dedupeKey: 'google-oob-tunnel' })
+  const again = ops.openTaskByDedupeKey('team-1', 'google-oob-tunnel')
+  assert.equal(again?.id, first.id)
+  // Different team, same key: separate queue, no collision.
+  assert.equal(ops.openTaskByDedupeKey('team-2', 'google-oob-tunnel'), undefined)
+  // Resolved tasks stop deduping: the wall can be re-raised after a skip.
+  ops.resolve(first.id, 'skip', 'human')
+  assert.equal(ops.openTaskByDedupeKey('team-1', 'google-oob-tunnel'), undefined)
+  // Outside the window: no dedupe either.
+  const stale = ops.create('team-1', 'a2', 'lane', { title: 'old', steps: [], doneWhen: 'y', dedupeKey: 'stale-key' })
+  ;(stale as { createdAt: string }).createdAt = new Date(Date.now() - 20 * 60_000).toISOString()
+  assert.equal(ops.openTaskByDedupeKey('team-1', 'stale-key'), undefined)
+})
+
+test('run-7 P1-5: edit rewrites title/steps/doneWhen of an open wall and refuses resolved ones', () => {
+  const ops = new TeamOps(join(mkdtempSync(join(tmpdir(), 'ht-')), 'audit.jsonl'))
+  const task = ops.create('team-1', 'a1', 'lead', { title: 'old title', steps: ['old step'], doneWhen: 'old done' })
+  const edited = ops.edit(task.id, { title: 'new title', steps: ['new step 1', 'new step 2'], doneWhen: 'new done' })
+  assert.equal(edited.title, 'new title')
+  assert.deepEqual(edited.steps, ['new step 1', 'new step 2'])
+  assert.equal(edited.doneWhen, 'new done')
+  ops.resolve(task.id, 'done', 'human')
+  assert.throws(() => ops.edit(task.id, { title: 'late' }), /already resolved/)
+  assert.throws(() => ops.edit('ht-nope', { title: 'x' }), /not found/)
+})
