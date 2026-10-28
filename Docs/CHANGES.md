@@ -4,6 +4,16 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP smoke round 2 patch `db0b1e5`: `src/browser/session.ts`
+(quiet windows — --hide-crash-restore-bubble/--no-first-run/--no-default-
+browser-check + Preferences exit_type=Normal and password manager off on
+every launch), `src/browser/tools.ts` (browser_upload: CDP file-chooser
+interception armed before the trigger + disarm in finally, trigger_x/y
+coordinate fallback, failure dumps visible menu texts; browser_set_files
+same interception; describeErrorChain JSON-serializes non-Error throwables;
+scope-violations wording), `src/tools/budget.ts` + `src/server.ts`
+(budgets.json persistence), tests 45 -> 48.
+
 Constellation-MCP smoke patch `0900290` (lead smoke round, 10/13 live-verified):
 `src/browser/tools.ts` (evidence_capture actually appends the chain — the
 call had silently no-oped; tab-index spelled out in new-tab responses),
