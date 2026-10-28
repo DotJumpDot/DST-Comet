@@ -4,6 +4,13 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP smoke round 5 patch `5a7f302`: `src/tools/recipe.ts`
+(normalizeStringArray — bare-string needles accepted; evaluateVerify —
+case-insensitive by default with case_sensitive opt-in + case-only hints;
+the `expect` deny/allow step running http specs through diff_pair
+verdictOf with shared jars/scope/budget), `src/server.ts` wiring,
+tests 51 -> 52.
+
 Constellation-MCP smoke round 4 patch `5b7c9eb`: `src/tools/recipe.ts`
 (fixture_recipe_set/list/run — the §1c recipe registry + browser-driven
 executor with per-step owner switching, $var capture interpolation, run
