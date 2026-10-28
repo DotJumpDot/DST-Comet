@@ -4,6 +4,45 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+## 2026-10-29 — run-7 asks: plugin-record releases, inject-free context tools, external-profile cookies, CDP attach
+
+| File | Why |
+|---|---|
+| `engine/agent-team/src/types.ts` | `team/member/released` moves OUT of the SessionEventMap augmentation into a `PluginRecordMap` augmentation (`plugin:agent-team/member-released`) — the release type is outside the released event catalog, and the plugin-record envelope's `ignorable` marker is the only sanctioned way an out-of-repo type coexists with harnesses that don't know it (run-6 handoff sessions refused to continue on the plain event; run-7 blocking bug) |
+| `engine/agent-team/src/journal.ts` | `appendReleased` writes through `appendPluginRecord` (ignorable envelope, retained-and-skipped by unknown readers); `commitReasonOf` keeps wake reasons for the two catalog event types |
+| `engine/agent-team/src/roster.ts` | release path calls `appendReleased` |
+| `engine/agent-team/src/projection.ts` | the fold applies BOTH release spellings — the plugin record (new writes) and the legacy `team/member/released` event (repaired logs) — sharing one roster-removal transition; malformed plugin records are skipped (upstream's action-cards pattern), legacy events keep their strict failure semantics |
+| `engine/tool-agent-team/src/human-tasks.ts` | run-7 P1-5: `dedupeKey` on tasks + `openTaskByDedupeKey` (15-min window, per-team) so the Lead and the lane raising the same wall 19 s apart return ONE ask; `edit` rewrites title/steps/doneWhen of an open wall (the baked-in tunnel-URL case) |
+| `engine/tool-agent-team/src/index.ts` | `human_task_create`: parking defaults are role-aware (teammate parks itself, the Lead does NOT park itself — the coordinator lost its tools in run 7), `dedupe_key` early-returns the open wall; new `human_task_update` tool edits an open wall and refreshes the board mirror via task `edit`; `session_compact`-style `{reason}` recording on the plugin side |
+| `engine/tool-agent-team/tests/{tool-agent-team,release-projection,human-tasks}.spec.ts` | role-aware park defaults pinned (Lead unparked by default, explicit park:true parks), mirror lookup by board_task_id, 5-test release-persistence suite (plugin record commits ignorable + admissible, applies to the roster, repaired legacy events apply, duplicates/malformed skip, other-team records ignored), dedupe + edit unit tests |
+| `engine/scripts/repair-released-events.mjs` | frame-surgical repairer for logs stranded by the old event: rewrites stored `team/member/released` lines to carry `"ignorable":true` (type/seq/time/data byte-identical), only touched frames re-encoded, `.pre-repair.bak` backup + full round-trip verification before rename; ran on the 4 affected Bug_Bounty sessions (79 events) |
+| `engine/scripts/verify-log-admission.mjs` | checks a log against the exact persistence admission gate (KNOWN_SESSION_EVENT_TYPES.has(type) OR ignorable) — the repaired logs read ADMISSIBLE, the backups still refuse at seq 194 |
+| `engine/scripts/inspect-session-log.mjs` | read-only jsonl.zstd inspector (ported frame scanner) used to locate the stranded events |
+| `plugins/dst-comet-agent-tools/index.js` | run-7 P0-4 (third fix, definitive): every service read goes through cordis's inject-free `ctx.get(name)` — property access on the agent context throws `cannot get property "tokenMeter" without inject`; `session_compact` gains `{reason}` |
+| `plugins/dst-comet-agent-tools/probe-inject-guard.mjs` | probe that reproduces the cordis inject guard with a Proxy (property access throws, get() resolves) and drives both tool executes through it; also pins the degraded no-service errors |
+| `Advice/2026-10-29-run7-harness-and-mcp-improvements.md` | (untracked, live-run notes) status header: all 16 items addressed + the session-continue repair |
+
+Constellation-MCP (own repo) run-7 — 48 to 59 tools (mcp-smoke asserts
+the exact list), 38/38 unit tests: `src/browser/cookies.ts` (external
+profile import: DPAPI + AES-GCM v10/v11, sha256(host_key) prefix strip, v20
+and DBSC reported; both-direction host-only domain matching — the pinned
+google.com/accounts.google.com regression), `src/browser/session.ts`
+(attach over CDP with disconnect-only close, no-automation-flag launch
+opts, heldLeases for reset safety), `src/browser/registry.ts`
+(attachFor/launchFor, caller-only resetAll with lease refusal,
+runningProfileDirs process scan), `src/browser/tools.ts` (export
+`domains:[]`, import `profile_dir`, browser_attach/browser_launch/
+browser_clipboard/browser_paste/browser_upload, evidence_capture, reset
+caller-only, map process state, budget spend hooks, DBSC export warning,
+DOM-text snapshot fallback), `src/tools/budget.ts` (enforced caps +
+budget_raise), `src/tools/secrets.ts` (secrets_patch under a per-secret
+lock, JSON keys in masked secrets_get), `src/tools/git.ts` (verbatim path
+pre-validation before staging), `src/tools/oob.ts` (cloudflared quick
+tunnels + oob_close + exposure warnings), `src/tools/mail.ts`
+(mail_diagnose cross-folder verdict), `src/browser/page-dom.ts` (minimal
+page-side DOM ambient), `src/redact.ts` (Array.isArray guard, real-function
+password probe).
+
 ## 2026-10-28 — run-5 asks: cross-provider spawn, real errors, per-card fold, live compaction tools
 
 | File | Why |
