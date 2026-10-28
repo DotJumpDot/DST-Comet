@@ -262,16 +262,24 @@ export interface TeamWaitResult {
   readonly detail?: string
 }
 
+/**
+ * Durable teammate removal payload (DST-Comet: release_teammate). Stored as
+ * the `plugin:agent-team/member-released` plugin record: the type is outside
+ * the released event catalog, and the plugin-record envelope's `ignorable`
+ * marker is the sanctioned way an out-of-repo event type coexists with
+ * harnesses that do not know it (a plain `team/member/released` session event
+ * made every log containing one refuse to load on continue).
+ */
+export interface TeamMemberReleasedData {
+  version: 2
+  teamId: TeamId
+  memberId: SessionId
+}
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /** Whole teammate lifecycle value, stored only in the Team Lead Session. */
     'team/member': { version: 2; teamId: TeamId; member: TeamMemberSnapshot }
-    /**
-     * Durable teammate removal (DST-Comet: release_teammate). Drops the member
-     * from the projected roster, freeing its member slot and its name for a
-     * later respawn; stored only in the Team Lead Session.
-     */
-    'team/member/released': { version: 2; teamId: TeamId; memberId: SessionId }
     /** Whole shared-task value, stored only in the Team Lead Session. */
     'team/task': { version: 2; teamId: TeamId; task: TeamTaskSnapshot }
     /** Historical mailbox enqueue; new sends use the target Agent inbox. */
@@ -283,5 +291,12 @@ declare module '@deepseek-ai/dsh-session/types' {
       messageId: TeamMessageId
       targetId: SessionId
     }
+  }
+  interface PluginRecordMap {
+    /**
+     * Drops the member from the projected roster, freeing its member slot and
+     * its name for a later respawn; stored only in the Team Lead Session.
+     */
+    'plugin:agent-team/member-released': TeamMemberReleasedData
   }
 }

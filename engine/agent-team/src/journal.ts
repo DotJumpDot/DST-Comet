@@ -2,16 +2,18 @@
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { Context } from '@deepseek-ai/cordis'
+import { appendPluginRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import type { TeamEventType, TeamState } from './projection.ts'
+import type { TeamMemberReleasedData } from './types.ts'
 import type { TeamWakeReason } from './activity.ts'
 
 type AppendTeamEvent = <T extends TeamEventType>(type: T, data: SessionEventMap[T]) => void
-type MutableTeamEventType = 'team/member' | 'team/member/released' | 'team/task'
+type MutableTeamEventType = 'team/member' | 'team/task'
 
 /** What one committed event tells a waiter (DST-Comet wake reasons). */
 function commitReasonOf(type: MutableTeamEventType, data: SessionEventMap[MutableTeamEventType]): TeamWakeReason {
-  const payload = data as { task?: { id?: unknown; subject?: unknown }; member?: { name?: unknown; phase?: unknown }; memberId?: unknown }
+  const payload = data as { task?: { id?: unknown; subject?: unknown }; member?: { name?: unknown; phase?: unknown } }
   switch (type) {
     case 'team/task':
       return {
@@ -24,12 +26,6 @@ function commitReasonOf(type: MutableTeamEventType, data: SessionEventMap[Mutabl
         changed: 'member',
         ...(typeof payload.member?.name === 'string' ? { target: payload.member.name } : {}),
         ...(typeof payload.member?.phase === 'string' ? { detail: payload.member.phase } : {}),
-      }
-    case 'team/member/released':
-      return {
-        changed: 'member',
-        ...(typeof payload.memberId === 'string' ? { target: payload.memberId } : {}),
-        detail: 'released',
       }
   }
 }
@@ -100,5 +96,22 @@ export class TeamJournal {
     append(type, data)
     await this.ctx.sessions.flush(root.session)
     this.onCommit(root, commitReasonOf(type, data))
+  }
+
+  /**
+   * Append and checkpoint one root-owned teammate release as a plugin record.
+   * The record carries the envelope `ignorable` marker, so a harness that does
+   * not know the type retains and skips it instead of refusing the whole log.
+   * @param root - exact live Lead whose Session owns the record.
+   * @param data - release payload correlated with the Lead Team.
+   */
+  async appendReleased(root: Agent, data: TeamMemberReleasedData): Promise<void> {
+    appendPluginRecord(root.session, 'plugin:agent-team/member-released', data)
+    await this.ctx.sessions.flush(root.session)
+    this.onCommit(root, {
+      changed: 'member',
+      ...(typeof data.memberId === 'string' ? { target: data.memberId } : {}),
+      detail: 'released',
+    })
   }
 }

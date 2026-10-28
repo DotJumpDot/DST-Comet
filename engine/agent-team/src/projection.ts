@@ -3,11 +3,13 @@
 import { z } from 'zod'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import { pluginRecordOf } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type {
   TeamId,
   TeamMemberProjection,
+  TeamMemberReleasedData,
   TeamMemberSnapshot,
   TeamMessageId,
   TeamMessageSnapshot,
@@ -108,7 +110,7 @@ const teamMemberReleasedEventSchema = z.object({
   version: z.literal(2),
   teamId: teamIdSchema,
   memberId: sessionIdSchema,
-}).strict() as z.ZodType<SessionEventMap['team/member/released']>
+}).strict() as z.ZodType<TeamMemberReleasedData>
 
 const teamTaskEventSchema = z.object({
   version: z.literal(2),
@@ -177,7 +179,6 @@ const teamProjectionEntrySchema = z.object({
 /** Whether one event belongs to the Team domain. */
 export type TeamEventType =
   | 'team/member'
-  | 'team/member/released'
   | 'team/task'
   | 'team/message/queued'
   | 'team/message/delivered'
@@ -192,14 +193,18 @@ type TeamSessionEvent = SessionEvent<TeamEventType>
  */
 export function isTeamEvent(event: SessionEvent): event is TeamSessionEvent {
   return event.type === 'team/member'
-    || event.type === 'team/member/released'
     || event.type === 'team/task'
     || event.type === 'team/message/queued'
     || event.type === 'team/message/delivered'
 }
 
+/** DST-Comet teammate release: a plugin record in new writes, a legacy
+ *  log-only event in older logs (repaired to carry the ignorable marker). */
+const releasedRecordType = 'plugin:agent-team/member-released'
+const releasedLegacyType = 'team/member/released'
+
 /** Decode one persisted Team value and retain the schema failure as its cause. */
-function parsePersisted<T>(type: TeamEventType, schema: z.ZodType<T>, value: unknown): T {
+function parsePersisted<T>(type: string, schema: z.ZodType<T>, value: unknown): T {
   try {
     return schema.parse(value)
   } catch (error: unknown) {
@@ -212,8 +217,6 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
   switch (event.type) {
     case 'team/member':
       return { ...event, data: parsePersisted(event.type, teamMemberEventSchema, event.data) }
-    case 'team/member/released':
-      return { ...event, data: parsePersisted(event.type, teamMemberReleasedEventSchema, event.data) }
     case 'team/task':
       return { ...event, data: parsePersisted(event.type, teamTaskEventSchema, event.data) }
     case 'team/message/queued':
@@ -226,8 +229,54 @@ function parseCurrentTeamEvent(event: TeamSessionEvent): TeamSessionEvent {
   }
 }
 
+/** Apply one teammate release to the roster (both record spellings share this). */
+function applyReleasedMember(state: TeamProjectionState, memberId: SessionId): TeamProjectionState {
+  // DST-Comet: release_teammate removes the member from the projected
+  // roster entirely, freeing its slot and name. Owned tasks keep their
+  // ownerId and degrade to unowned; historical messages keep their
+  // senderName snapshots, so attribution survives the removal.
+  const prior = state.members.find(candidate => candidate.id === memberId)
+  if (prior === undefined) {
+    throw new Error(`released teammate "${memberId}" is not on the roster`)
+  }
+  if (prior.phase === 'provisioning') {
+    throw new Error(`teammate "${prior.name}" cannot be released while provisioning`)
+  }
+  return { ...state, members: state.members.filter(candidate => candidate.id !== memberId) }
+}
+
 function applyProjectionEvent(state: TeamProjectionState, event: SessionEvent): TeamProjectionState {
   if (state.failure !== undefined) return state
+  // DST-Comet: teammate release arrives as a plugin record (new writes) or as
+  // the legacy log-only event (older logs repaired to carry the ignorable
+  // envelope marker). Both spellings apply the same roster transition before
+  // the released-event domain filter, which no longer knows the legacy name.
+  const rawType = (event as { readonly type: string }).type
+  if (rawType === releasedRecordType) {
+    const record = pluginRecordOf(event)
+    if (record === undefined) return state
+    // A malformed or newer record is skipped; throwing here would fail every
+    // later read of this Session (the plugin-record retention contract).
+    const data = teamMemberReleasedEventSchema.safeParse(record.data)
+    if (!data.success) return state
+    if (data.data.teamId !== state.id) return state
+    try {
+      return applyReleasedMember(state, data.data.memberId)
+    } catch {
+      // A duplicate or out-of-order release cannot poison the roster fold.
+      return state
+    }
+  }
+  if (rawType === releasedLegacyType) {
+    try {
+      const data = parsePersisted(releasedLegacyType, teamMemberReleasedEventSchema, event.data)
+      if (data.teamId !== state.id) return state
+      return applyReleasedMember(state, data.memberId)
+    } catch (error: unknown) {
+      /* v8 ignore next -- the owned Team transition throws Error instances. */
+      return { ...state, failure: error instanceof Error ? error.message : String(error) }
+    }
+  }
   if (!isTeamEvent(event)) return state
   try {
     const selector = parsePersisted(event.type, teamEventSelectorSchema, event.data)
@@ -270,20 +319,6 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
         }
       }
       return { ...state, members: replaceAt(state.members, index, member) }
-    }
-    case 'team/member/released': {
-      // DST-Comet: release_teammate removes the member from the projected
-      // roster entirely, freeing its slot and name. Owned tasks keep their
-      // ownerId and degrade to unowned; historical messages keep their
-      // senderName snapshots, so attribution survives the removal.
-      const prior = state.members.find(candidate => candidate.id === event.data.memberId)
-      if (prior === undefined) {
-        throw new Error(`released teammate "${event.data.memberId}" is not on the roster`)
-      }
-      if (prior.phase === 'provisioning') {
-        throw new Error(`teammate "${prior.name}" cannot be released while provisioning`)
-      }
-      return { ...state, members: state.members.filter(candidate => candidate.id !== event.data.memberId) }
     }
     case 'team/task': {
       const task = event.data.task

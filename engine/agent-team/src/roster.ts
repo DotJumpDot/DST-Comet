@@ -368,7 +368,7 @@ export class TeamRoster {
         )
       }
       hadLiveChild = this.ctx.agents.get(member.id) !== undefined
-      await this.journal.appendAndFlush(root, 'team/member/released', {
+      await this.journal.appendReleased(root, {
         version: 2,
         teamId: TeamId(root.id),
         memberId: member.id,
