@@ -4,6 +4,14 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP smoke patch `0900290` (lead smoke round, 10/13 live-verified):
+`src/browser/tools.ts` (evidence_capture actually appends the chain — the
+call had silently no-oped; tab-index spelled out in new-tab responses),
+`src/tools/oob.ts` (CONSTELLATION_CLOUDFLARED binary path + both error
+paths name it), `src/tools/fixture.ts` (forge strips a caller-provided
+extension; public config field), `src/tools/http.ts` (http_replay without
+capture_id returns the latest id), + chain regression test (46/46).
+
 ## 2026-10-29 (later) — run-8 proposals: fixture/diff/session/injectlab primitives (Constellation 59 → 77 tools)
 
 | File | Why |
