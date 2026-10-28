@@ -33,6 +33,16 @@
  *    own realm. Scoped registrations shadow globals, so this is safe even
  *    where a host lookup would have worked.
  *
+ * Run-7 advice P0-4 — a third correction, and the definitive one: cordis
+ * property access on a context is guarded (`cannot get property "tokenMeter"
+ * without inject`) unless the name is in THAT context's inject list, and the
+ * agent context does not inject compaction/tokenMeter. The sanctioned
+ * inject-free lookup is `ctx.get(name)` ("read a service from the store
+ * without the inject requirement", returning undefined while the providing
+ * fiber is not active) — the same pattern upstream's translator uses for
+ * optional service access. Every service read below goes through
+ * `serviceCtx.get(...)`; the property syntax never appears again.
+ *
  * @module @dst-comet/agent-tools
  */
 
@@ -48,9 +58,8 @@ function scheduleCompact(serviceCtx, agent) {
   let retried = false
   const run = async () => {
     try {
-      // Resolve the lazy service here: by turn end the runtime is mounted,
-      // and touching serviceCtx.compaction instantiates it on demand.
-      const compaction = serviceCtx.compaction
+      // Resolve the lazy service here: by turn end the runtime is mounted.
+      const compaction = serviceCtx.get('compaction')
       if (compaction === undefined) throw Object.assign(new Error('no compaction service'), { code: 'no-service' })
       // null = nothing useful to compact; outcomes (including failures)
       // surface through the session log's compaction events either way.
@@ -106,7 +115,7 @@ function agentTools(serviceCtx, autoCompactRatio) {
       execute(_args, exec) {
         const agent = exec.agent
         if (agent === undefined) throw new Error('context_status requires an owning agent session')
-        const tokenMeter = serviceCtx.tokenMeter
+        const tokenMeter = serviceCtx.get('tokenMeter')
         if (tokenMeter === undefined) throw new Error('context_status: this runtime has no token meter')
         const measurement = tokenMeter.measure(agent.session)
         const pressure = tokenMeter.contextPressure(agent.session)
@@ -128,8 +137,10 @@ function agentTools(serviceCtx, autoCompactRatio) {
     }),
     defineTool({
       name: 'session_compact',
-      description: "Compact this session's older history into a summary to free context, at a checkpoint you choose. Compaction runs when the current turn ends and the next turn continues from the compacted history. BEFORE calling: write or update the workspace state file (STATE.md / progress notes) so nothing important lives only in the history being condensed.",
-      parameters: {},
+      description: "Compact this session's older history into a summary to free context, at a checkpoint you choose. Compaction runs when the current turn ends and the next turn continues from the compacted history. BEFORE calling: write or update the workspace state file (STATE.md / progress notes) so nothing important lives only in the history being condensed. Pass reason to record why you are compacting (e.g. 'before large crawl phase').",
+      parameters: {
+        reason: { type: 'string', description: 'One line: why this checkpoint compacts now. Recorded with the schedule.' },
+      },
       output: {
         schema: {
           type: 'object',
@@ -141,17 +152,18 @@ function agentTools(serviceCtx, autoCompactRatio) {
         },
         render: (_args, value) => [{ type: 'text', text: value.detail }],
       },
-      execute(_args, exec) {
+      execute(args, exec) {
         const agent = exec.agent
         if (agent === undefined) throw new Error('session_compact requires an owning agent session')
-        const compaction = serviceCtx.compaction
+        const compaction = serviceCtx.get('compaction')
         if (compaction === undefined || typeof agent.whenIdle !== 'function' || typeof agent.runMaintenance !== 'function') {
           throw new Error('session_compact: this runtime does not expose idle compaction')
         }
         scheduleCompact(serviceCtx, agent)
+        const reason = typeof args?.reason === 'string' && args.reason.trim() !== '' ? ` Reason: ${args.reason.trim()}` : ''
         return Promise.resolve({
           scheduled: true,
-          detail: 'Compaction scheduled: it runs when this turn ends. The next turn continues from the compacted history — make sure the state file is current.',
+          detail: `Compaction scheduled: it runs when this turn ends. The next turn continues from the compacted history — make sure the state file is current.${reason}`,
         })
       },
       presentCall: () => ({ card: 'generic', title: 'Compact session history', kind: 'other' }),
