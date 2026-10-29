@@ -4,6 +4,26 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP gap-list patch `0ec1090` (the lead's
+Advice/2026-10-29-round7-tooling-gap-list.md, all six items + the small
+change, 80 → 90 tools, 61 → 66 tests): `src/tools/cell.ts` (new —
+cell_register/run/status/ledger; cells.json + cell-runs.jsonl; verdict
+tuples stored, never checkboxes; NOT_FOUND = INCONCLUSIVE enforced in
+foldCellStatus; recipe cells via the extracted executeRecipe),
+`src/tools/structural.ts` (new — structuralJsonDiff leaf-pair walk with
+LISTED volatile suppression + the jsonpath subset), `src/tools/http.ts`
+(http_extract over retained captures/body_file; body_full fix — body_file
+now stores the WHOLE body, not the capped preview), `src/tools/diff.ts`
+(diff_pair auto-appends a verdict-shaped evidence-chain entry),
+`src/tools/evidence.ts` (appendVerdictEntry shared by diff_pair/cell_run/
+drift), `src/tools/recipe.ts` (baseline recorded after every expect
+resolution, never on NOT_FOUND; recipe_baseline/recipe_drift),
+`src/tools/session.ts` (KeepaliveRegistry + session_keepalive/_stop,
+300 s floor, measured lifetime, honest not-preventing wording),
+`src/tools/report.ts` (new — report_assemble, CANDIDATE-only refusal),
+`src/server.ts` wiring + instructions. Bug_Bounty Orchestra/README.md
+documents the 90-tool surface (`dfa1c7a`).
+
 Constellation-MCP round-7 patches `3c9f97e` + `7d6529a` — the three
 defects in the "verified independently" section below are FIXED, plus the
 placement note implemented: `src/tools/recipe.ts` (D1 — whitelisted
