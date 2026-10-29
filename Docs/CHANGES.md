@@ -4,6 +4,21 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP round-8 patch `1600b9b` (lead verification: 10 gap-list
+tools green against the oracle; three defects, all fixed): `src/tools/
+diff.ts` (D4 — a same-status non-2xx probe/miss pair with different
+bodies folded to AUTHORIZATION_DENIAL because 404 pages ECHO the
+requested id; a denial now requires a status difference, same-status
+non-2xx is NOT_FOUND "miss on both sides", 403-vs-404 unchanged and
+test-pinned; NOT_FOUND chains no evidence so the bogus-citation class
+cannot recur), `src/browser/session.ts` + `src/config.ts` (D5/§5 —
+parkWindow on EVERY launch path: top = availTop + availH − peekPx,
+peek from CONSTELLATION_WINDOW_PEEK_PX/--window-peek-px, default 36 =
+the human's measured drag, clamped 20–60, never height-derived, never
+clamped on-screen, read-back + one retry), `src/tools/recipe.ts` (D6 —
+recipe failure output includes the step-log tail so the ⚠ TRANSITION
+line prints mid-run), tests 66 → 67.
+
 Constellation-MCP gap-list patch `0ec1090` (the lead's
 Advice/2026-10-29-round7-tooling-gap-list.md, all six items + the small
 change, 80 → 90 tools, 61 → 66 tests): `src/tools/cell.ts` (new —
