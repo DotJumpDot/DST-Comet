@@ -21,6 +21,29 @@ starts them taskbar-only), tests 52 -> 58. Profile cordis.patch.yml
 launches constellation with `--window-position -1920,100` (left monitor —
 spawned Chrome never covers the fullscreen game on the main screen).
 
+Round-6 patch **verified independently** 2026-10-29 15:52–15:58 +07 (lead smoke; matrix in
+`Bug_Bounty/Progress/harness-mcp/r6-smoke/RESULTS-r6.md`) — browser-identity legs confirmed on all
+five leg sites, with three follow-ups in the patch itself:
+
+1. `src/tools/recipe.ts` — **fail-open, fix first.** An `expect` step that omits `action` is accepted by
+   `fixture_recipe_set`, executes nothing, and is logged `ok:true` with no verdict line, because both
+   `validateRecipe` (l.154) and the runner (`switch (step.action)`, ~l.270) switch on `step.action` and
+   there is no `default:` arm. A recipe that asserts nothing reports green. Make `action` required,
+   reject `undefined` in validation, and throw `unknown step action` in a `default:`.
+2. `src/scope.ts` — `scope_set` accepts `host:port` entries (`127.0.0.1:8799`) and then denies the
+   matching host, because the match uses the portless hostname (l.90 message shows the entry next to
+   the rejection, which reads as a contradiction). Normalise at set time (strip `:port`, say so) or
+   match `host:port` when supplied.
+3. `src/tools/diff.ts` — the `SOFT_ALLOW` note says "different bytes than the owner" even when no `own`
+   leg was supplied; branch the wording on whether `own` was provided.
+
+Also `src/config.ts` + `src/browser/session.ts` window placement: the cascade adds `(abs(hash)%10)*30`
+to **both** axes on top of the pinned `-1920,100`, but the human's target is the **bottom of screen 2**
+(left monitor, origin `-1920,0`) — the y-offset walks later owners off the bottom of the monitor. The
+flags themselves are correct (offset 120 → `-1800,220`). Preferred shape: x-only cascade plus a
+post-launch `Browser.setWindowBounds` bottom-anchor (`top = availTop + availH - height`), measured to
+place a window exactly (`(-1800,300)` honoured, `window.screenX/screenY` agreeing).
+
 Constellation-MCP smoke round 5 patch `5a7f302`: `src/tools/recipe.ts`
 (normalizeStringArray — bare-string needles accepted; evaluateVerify —
 case-insensitive by default with case_sensitive opt-in + case-only hints;
