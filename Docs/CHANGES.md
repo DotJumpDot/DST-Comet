@@ -16,7 +16,9 @@ real rc.2 host so it can never again stay green while production breaks).
 Constellation-MCP run-9 patch `98c8cc6`: `src/tools/http.ts` (redirect hops
 followed ONE at a time with a scope.assert per hop — out-of-scope hop =
 audited DENY, never a quiet follow; cross-host hops drop Authorization and
-rebuild cookies per-host; http_download gains `browser:`; binary content
+rebuild cookies per-host in the jar + download transports (NOT the browser
+transport — D8, see the verification paragraph below); http_download gains
+`browser:`; binary content
 types never preview), `src/browser/tools.ts` (browser_navigate/browser_tabs
 (new)/tab_open post-check the LANDED url — crossing clears the tab and fails
 closed), `src/browser/cookies.ts` (DBSC warnings name their signal and scope
@@ -27,6 +29,23 @@ browser/session.ts` + `src/config.ts` (post-spawn focus watchdog: armed
 before every Chrome spawn, 40 ms poll, AttachThreadInput restore, matches
 only our user-data-dir processes, drops out after 2 counters, logs to
 focus-guard.log, CONSTELLATION_FOCUS_GUARD=0 off); tests 67 → 76.
+
+Round-9 verification (2026-10-30, `Advice/2026-10-30-round9-verification.md`,
+raw matrix in `Bug_Bounty/Progress/harness-mcp/r9-smoke/RESULTS-r9.md`): 10 of
+11 claims confirmed by live call on a loopback oracle — `context_status` on the
+rc.2 host, hop gating with the audited `http_request(redirect hop 1)` DENY,
+fail-closed `browser_navigate`/`tab_open`/`session_verify` with the tab cleared
+to `about:blank`, `http_download {browser}` naming the file from the FINAL url,
+binary suppression on both transports, all four DBSC branches (NOTE on
+no-match, WARNING on match, INCONCLUSIVE on unreadable), and the focus
+watchdog measured independently of its own log (a 40 ms poll started before the
+spawn: steal at 01:47:01.611, restored 01:47:01.706 ≈ 95 ms, human's own
+windows never touched, still parked at the 36 px peek). **D8 open:**
+`performBrowserRequest` still forwards `Authorization` across a cross-host hop
+— the jar and download loops call `crossHostHopHeaders`, that loop does not, so
+a token named for host A rides into host B. Scope still holds (the far host must
+be in scope) so this is credential hygiene, not a scope escape, but the sentence
+above is only true for two of the three transports until it is patched.
 
 Constellation-MCP round-8 patch `1600b9b` (lead verification: 10 gap-list
 tools green against the oracle; three defects, all fixed): `src/tools/
