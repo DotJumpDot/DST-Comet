@@ -4,6 +4,22 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP round-7 patches `3c9f97e` + `7d6529a` — the three
+defects in the "verified independently" section below are FIXED, plus the
+placement note implemented: `src/tools/recipe.ts` (D1 — whitelisted
+actions at save time, run-time re-validation of disk-loaded recipes, and
+a default arm in the executor that throws into the failure/audit path; a
+step missing its action can never again run nothing and report green),
+`src/scope.ts` + `src/tools/scope.ts` (D2 — host:port entries are
+PORT-EXACT with scheme-default resolution (443≡https, 80≡http), portless
+entries stay port-agnostic, IPv6 bracket form carries its port, the
+not-in-scope denial prints the requested host WITH its port),
+`src/tools/diff.ts` (D3 — SOFT_ALLOW names the MISS CONTROL when no own
+leg was sent and states the DATA_LEAK verdict is unavailable),
+`src/browser/session.ts` (cascade x-only per the lead's measurement +
+post-launch CDP setWindowBounds bottom-anchor to the monitor work area,
+best-effort, skipped for minimized starts), tests 58 -> 61.
+
 Constellation-MCP round-6 patch `000dd15` + `9b82ae8` (smoke round 6 all
 green; enables the lead's next exercise): `src/tools/http.ts`
 (performBrowserRequest — one request through the owner's live browser
