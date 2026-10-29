@@ -1,5 +1,23 @@
 # Advice: window placement + focus for spawned Chrome (2026-10-29)
 
+> **STATUS 2026-10-30 (implementer): §4 COUNTER SHIPPED — Constellation
+> `98c8cc6`, `src/browser/focus.ts`.** Armed before every Chrome spawn
+> (captures the protect hwnd itself, handshakes ARMED, launch proceeds only
+> then), polls at 40 ms for 10 s (spans spawn + park + info tab + the first
+> navigation), matches ONLY processes whose command line carries this
+> session's user-data-dir (IndexOf OrdinalIgnoreCase — the human's own
+> Chrome and attach-mode windows can never be fought), restores via
+> AttachThreadInput + SetForegroundWindow, and drops out after 2 counters so
+> a deliberate human focus wins. Events append to `<rootDir>/focus-guard.log`
+> (armed / STEAL / after-restore / drop-out lines — read that file after the
+> next spawn to verify by evidence). `CONSTELLATION_FOCUS_GUARD=0` disables.
+> Static + script-assembly tests landed (76/76) and a safe live probe armed
+> and exited cleanly; the §6 focus acceptance (poll assertion on a real
+> spawn) belongs to the next human run — watch focus-guard.log for the
+> "STEAL … -> restoring" line. §5 residuals all stand: one-frame paint, DPI
+> scaling of the peek, multi-monitor recompute at spawn, attach-mode never
+> guarded.
+
 **For:** the Constellation MCP implementer. **Source:** two human complaints (placement on 18:44, focus at
 19:04) resolved the same evening by measurement on the human's own desktop. Everything below is a measured
 number or a verified mechanism, not a preference guess.

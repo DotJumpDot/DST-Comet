@@ -4,6 +4,30 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Run-9 fixes (both advice files, 2026-10-29): `plugins/dst-comet-agent-tools/
+index.js` + `probe-inject-guard.mjs` (commit `07c24d8` — context_status died
+with `tokenMeter.contextPressure is not a function` because the installed
+dsh host 0.2.1-rc.2 ships TokenMeter with `measure()` only; the pressure
+state lives in the registered `contextPressure` session projection, which is
+exactly what the newer method wraps — the tool now prefers the method and
+falls back to `sessionProjections.stateOf(session, 'contextPressure')`,
+failing loudly when neither exists; the probe's default fixture mirrors the
+real rc.2 host so it can never again stay green while production breaks).
+Constellation-MCP run-9 patch `98c8cc6`: `src/tools/http.ts` (redirect hops
+followed ONE at a time with a scope.assert per hop — out-of-scope hop =
+audited DENY, never a quiet follow; cross-host hops drop Authorization and
+rebuild cookies per-host; http_download gains `browser:`; binary content
+types never preview), `src/browser/tools.ts` (browser_navigate/browser_tabs
+(new)/tab_open post-check the LANDED url — crossing clears the tab and fails
+closed), `src/browser/cookies.ts` (DBSC warnings name their signal and scope
+per-domain — marker without a matching bound origin is a NOTE, not doom),
+`src/tools/session.ts` + `src/tools/injectlab.ts` + `src/server.ts` (proof
+visits pass the rule URL through the guard), `src/browser/focus.ts` + `src/
+browser/session.ts` + `src/config.ts` (post-spawn focus watchdog: armed
+before every Chrome spawn, 40 ms poll, AttachThreadInput restore, matches
+only our user-data-dir processes, drops out after 2 counters, logs to
+focus-guard.log, CONSTELLATION_FOCUS_GUARD=0 off); tests 67 → 76.
+
 Constellation-MCP round-8 patch `1600b9b` (lead verification: 10 gap-list
 tools green against the oracle; three defects, all fixed): `src/tools/
 diff.ts` (D4 — a same-status non-2xx probe/miss pair with different
