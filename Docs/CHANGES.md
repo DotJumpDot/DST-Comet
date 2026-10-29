@@ -4,6 +4,23 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Constellation-MCP round-6 patch `000dd15` + `9b82ae8` (smoke round 6 all
+green; enables the lead's next exercise): `src/tools/http.ts`
+(performBrowserRequest — one request through the owner's live browser
+context (context.request, real cookie state) with performRequest parity:
+scope assertion, budget charge, full-body sha256, 20 KB preview, manual
+redirects, no jar merge; performLeg shared routing — `browser: "<owner>"`
+or true on http_request/http_replay/http_diff/diff_pair/recipe expect
+legs picks the live session, otherwise the jar; captures keep their
+transport), `src/tools/diff.ts` + `src/tools/recipe.ts` (legs accept
+browser; expect legs documented), `src/server.ts` wiring (diff env gains
+budget + sessionFor), `src/config.ts` + `src/browser/session.ts`
+(CONSTELLATION_WINDOW_POSITION/--window-position pins spawned windows
+with a per-owner cascade; CONSTELLATION_START_MINIMIZED/--start-minimized
+starts them taskbar-only), tests 52 -> 58. Profile cordis.patch.yml
+launches constellation with `--window-position -1920,100` (left monitor —
+spawned Chrome never covers the fullscreen game on the main screen).
+
 Constellation-MCP smoke round 5 patch `5a7f302`: `src/tools/recipe.ts`
 (normalizeStringArray — bare-string needles accepted; evaluateVerify —
 case-insensitive by default with case_sensitive opt-in + case-only hints;
