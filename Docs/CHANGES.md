@@ -4,6 +4,16 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+D9 fix (2026-10-30, run-10 advice): Constellation `ecf22af` — `src/tools/
+http.ts` (+ tests, 76→78): JSON array/scalar bodies were encoded through an
+object-only gate and reached servers as `[object Object]` text/plain (a
+batched GraphQL cell_run read byte-identical 500s on all three legs); both
+transports now encode absent | raw string verbatim | everything-else JSON
+with the content-type auto-set on the same non-string gate, and the new
+tests assert on the bytes a mock echo server received. The advice's §5
+runner note is documented in Bug_Bounty AGENTS.md §5 (taskkill, never
+Stop-Process).
+
 Run-9 fixes (both advice files, 2026-10-29): `plugins/dst-comet-agent-tools/
 index.js` + `probe-inject-guard.mjs` (commit `07c24d8` — context_status died
 with `tokenMeter.contextPressure is not a function` because the installed
