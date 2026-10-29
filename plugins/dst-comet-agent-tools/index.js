@@ -7,8 +7,11 @@
  *    used tokens, window, percent, and when auto-compaction triggers.
  *    Stock DSH feeds the token meter to the UI only; the model itself is
  *    blind. Sources: `tokenMeter.measure()` (current surface estimate)
- *    and `tokenMeter.contextPressure()` (last request's real prompt
- *    size + route capacity).
+ *    and the meter's registered 'contextPressure' session projection
+ *    (last request's real prompt size + route capacity). Newer hosts
+ *    expose that read as `tokenMeter.contextPressure()`; hosts through
+ *    0.2.1-rc.2 (run-9 §1) have no such method, so the same state is
+ *    read via `sessionProjections.stateOf(session, 'contextPressure')`.
  *
  *  - `session_compact`: the agent asks for compaction at a checkpoint IT
  *    chooses (the human `/compact` path is `compaction.compactNow()`,
@@ -118,7 +121,22 @@ function agentTools(serviceCtx, autoCompactRatio) {
         const tokenMeter = serviceCtx.get('tokenMeter')
         if (tokenMeter === undefined) throw new Error('context_status: this runtime has no token meter')
         const measurement = tokenMeter.measure(agent.session)
-        const pressure = tokenMeter.contextPressure(agent.session)
+        // Run-9 §1: hosts through 0.2.1-rc.2 ship no contextPressure()
+        // method on the meter — the pressure state lives in the meter's
+        // registered 'contextPressure' session projection, which is the
+        // exact read the newer method wraps. Prefer the method, fall back
+        // to the projection, fail loudly when neither is available.
+        let pressure
+        if (typeof tokenMeter.contextPressure === 'function') {
+          pressure = tokenMeter.contextPressure(agent.session)
+        } else {
+          const projections = serviceCtx.get('sessionProjections')
+          const state = projections?.stateOf(agent.session, 'contextPressure')
+          if (state === undefined) {
+            throw new Error('context_status: no context pressure read available (token meter present but no contextPressure projection)')
+          }
+          pressure = state
+        }
         // pressureTokens is the last real request's prompt size; the
         // measurement is the live estimate since then. Report the freshest
         // honest number: the live estimate once it exists, else the anchor.

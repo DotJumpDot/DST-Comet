@@ -37,15 +37,24 @@ function guardedCtx(services, inject = []) {
 
 const measurements = []
 const compactions = []
+// Run-9 §1 reality check: the installed host (dsh 0.2.1-rc.2) ships a
+// TokenMeter with measure() but NO contextPressure() method — the pressure
+// state is read from the meter's registered 'contextPressure' session
+// projection instead. The DEFAULT fixture mirrors that host; the probe would
+// have caught the run-9 breakage only if the fake lacked the method.
+const pressureStates = new Map()
 const services = {
   tokenMeter: {
     measure: (session) => { measurements.push(session); return { totalTokens: 73_000, baseline: { kind: 'estimate' } } },
-    contextPressure: () => ({ pressureTokens: 80_000, contextWindow: 128_000 }),
+  },
+  sessionProjections: {
+    stateOf: (session, key) => key === 'contextPressure' ? pressureStates.get(session.id) : undefined,
   },
   compaction: {
     compactNow: async (agent, signal) => { compactions.push({ agent, signal }); return { shadowedSeqs: [1, 2], shadowedTokenCount: 40_000 } },
   },
 }
+pressureStates.set('s-1', { pressureTokens: 80_000, contextWindow: 128_000, surfaceTokens: 79_000 })
 
 // The host/plugin ctx: tools+agents only (the plugin's own inject).
 const created = []
@@ -140,6 +149,70 @@ await assert.rejects(
 await assert.rejects(
   bareRegistered.find(tool => tool.name === 'session_compact').execute({}, { agent: bareAgent, signal: new AbortController().signal }),
   /does not expose idle compaction/,
+)
+
+// Newer hosts expose tokenMeter.contextPressure() — that path must still win
+// when present (and no projection lookup happens).
+const methodCalls = []
+const newerServices = {
+  tokenMeter: {
+    measure: () => ({ totalTokens: 10_000, baseline: { kind: 'usage' } }),
+    contextPressure: (session) => { methodCalls.push(session); return { pressureTokens: 12_000, contextWindow: 64_000 } },
+  },
+  sessionProjections: {
+    stateOf: () => { throw new Error('projection must not be read when the method exists') },
+  },
+}
+const newerRegistered = []
+const newerCtx = new Proxy({ tools: { register: (tool) => { newerRegistered.push(tool); return () => undefined } } }, {
+  get(target, prop) {
+    if (prop === 'get') return (name) => newerServices[name]
+    if (prop === 'tools' || prop === 'on') return target[prop]
+    throw new Error(`cannot get property "${String(prop)}" without inject`)
+  },
+})
+const newerHandlers = []
+const hostCtx3 = {
+  tools: { register: () => () => undefined },
+  agents: { list: () => [] },
+  on: (event, handler) => { if (event === 'agent/created') newerHandlers.push(handler); return () => undefined },
+  effect: () => () => undefined,
+}
+await apply(hostCtx3, {})
+const newerAgent = { ctx: newerCtx, session: { id: 's-3' }, whenIdle: () => Promise.resolve(), runMaintenance: async () => undefined }
+newerHandlers[0]({ agent: newerAgent })
+const newerValue = await newerRegistered.find(tool => tool.name === 'context_status').execute({}, { agent: newerAgent, signal: new AbortController().signal })
+assert.equal(newerValue.usedTokens, 12_000)
+assert.equal(newerValue.contextWindow, 64_000)
+assert.deepEqual(methodCalls, [newerAgent.session])
+
+// Meter present but the projection key is absent (unregistered/not active):
+// the tool must fail honestly, never report a zero window.
+const meterOnlyServices = {
+  tokenMeter: services.tokenMeter,
+  sessionProjections: { stateOf: () => undefined },
+}
+const meterOnlyRegistered = []
+const meterOnlyCtx = new Proxy({ tools: { register: (tool) => { meterOnlyRegistered.push(tool); return () => undefined } } }, {
+  get(target, prop) {
+    if (prop === 'get') return (name) => meterOnlyServices[name]
+    if (prop === 'tools' || prop === 'on') return target[prop]
+    throw new Error(`cannot get property "${String(prop)}" without inject`)
+  },
+})
+const meterOnlyHandlers = []
+const hostCtx4 = {
+  tools: { register: () => () => undefined },
+  agents: { list: () => [] },
+  on: (event, handler) => { if (event === 'agent/created') meterOnlyHandlers.push(handler); return () => undefined },
+  effect: () => () => undefined,
+}
+await apply(hostCtx4, {})
+const meterOnlyAgent = { ctx: meterOnlyCtx, session: { id: 's-4' }, whenIdle: () => Promise.resolve(), runMaintenance: async () => undefined }
+meterOnlyHandlers[0]({ agent: meterOnlyAgent })
+await assert.rejects(
+  meterOnlyRegistered.find(tool => tool.name === 'context_status').execute({}, { agent: meterOnlyAgent, signal: new AbortController().signal }),
+  /no context pressure read available/,
 )
 
 console.log('PROBE PASS: context tools resolve services via ctx.get() under the cordis inject guard')
