@@ -89,6 +89,7 @@ const GATES = [
   'verify:image-downsample',
   'verify:chat-overlay',
   'verify:i18n',
+  'verify:session-mount-stale',
   'verify:approval-visibility',
   'verify:adapter-skeleton',
   'verify:adapter-ports',

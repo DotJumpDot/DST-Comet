@@ -159,6 +159,42 @@ export function pidAlive(pid: number): boolean {
   }
 }
 
+/**
+ * Second staleness witness for the pid-reuse trap (2026-10-29 incident): a
+ * holder record whose pid is "alive" only because Windows RECYCLED it into an
+ * unrelated process. The caller observes, out of band, the start time of the
+ * pid's CURRENT bearer; a bearer that started AFTER the holder record's own
+ * `startedAt` is proof by definition that the record is an orphan. Mapped as
+ * pid -> bearerStartedAt and installed only for the duration of one claim: a
+ * one-shot observation, never a standing opinion — a permanent installation
+ * would go stale exactly the way the record did.
+ */
+let staleHolderEvidence: ReadonlyMap<number, number> | undefined
+
+/** Install the one-shot pid-reuse evidence (see {@link staleHolderEvidence}). */
+export function installStaleHolderEvidence(evidence: ReadonlyMap<number, number>): void {
+  staleHolderEvidence = evidence
+}
+
+/** Drop the one-shot evidence; refusal paths MUST call this on every exit. */
+export function clearStaleHolderEvidence(): void {
+  staleHolderEvidence = undefined
+}
+
+/**
+ * Whether a holder RECORD still names a live holder: pid-alive, and — with
+ * evidence installed — not a pid whose current bearer provably started after
+ * the record did. This is the single predicate the claim's conflict
+ * derivation and the write-path prune both consult, so a recovered claim also
+ * writes the orphan record out of the ledger instead of leaving it to block
+ * the next, witness-less claim.
+ */
+export function holderRecordAlive(owner: SessionMountOwner): boolean {
+  if (!pidAlive(owner.pid)) return false
+  const bearerStartedAt = staleHolderEvidence?.get(owner.pid)
+  return !(bearerStartedAt !== undefined && bearerStartedAt > owner.startedAt)
+}
+
 /** Parse one record, or undefined when the shape is wrong. */
 function parseOwner(value: unknown): SessionMountOwner | undefined {
   if (typeof value !== 'object' || value === null) return undefined
@@ -489,7 +525,7 @@ function writeLedger(mine: SessionMountOwner | undefined): { ok: true } | MountF
   }
   try {
     mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 })
-    const records = existing.owners.filter(owner => !ownerIsSelf(owner) && pidAlive(owner.pid))
+    const records = existing.owners.filter(owner => !ownerIsSelf(owner) && holderRecordAlive(owner))
     if (mine !== undefined) records.push(mine)
     writeFileSync(
       temporary,
@@ -637,7 +673,7 @@ export function claimMount(sessionId: string): MountClaim {
     }
     const holders: number[] = []
     for (const owner of read.owners) {
-      if (ownerIsSelf(owner) || !pidAlive(owner.pid)) continue
+      if (ownerIsSelf(owner) || !holderRecordAlive(owner)) continue
       if (owner.sessionIds.includes(sessionId)) holders.push(owner.pid)
     }
     if (holders.length > 0) return { ok: false, reason: 'occupied', holders }

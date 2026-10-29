@@ -102,6 +102,15 @@ paths name it), `src/tools/fixture.ts` (forge strips a caller-provided
 extension; public config field), `src/tools/http.ts` (http_replay without
 capture_id returns the latest id), + chain regression test (46/46).
 
+## 2026-10-29 (later still) — session-mount pid-reuse recovery
+
+| File | Why |
+|---|---|
+| `src/sessionMounts.ts` | installable one-shot stale-holder evidence (pid → current bearer's start time); `holderRecordAlive` (pidAlive + evidence) drives the claim's conflict derivation AND the write-path prune — a recycled pid (2026-10-29 incident: "held by pid 22776" = a conhost that inherited a dead TUI's pid) no longer blocks a session forever |
+| `src/dsh-adapter/channel/session-resume.ts` | on an occupied refusal, one PowerShell bearer-start-time query (refusal path only, never per render); provable reuse → witnessed re-claim recovers the session + "stale mount record cleared" toast; otherwise the original occupied toast |
+| `src/i18n.ts` | key `resume-session-occupied-recovered` (zh + en) |
+| `scripts/verify-session-mount-stale.ts` (new) + `scripts/run-verify-build.mjs` + `package.json` | gate pinning the witness predicate (orphan / same-process / predating bearer / unrelated pid / cleared) |
+
 ## 2026-10-29 (later) — run-8 proposals: fixture/diff/session/injectlab primitives (Constellation 59 → 77 tools)
 
 | File | Why |

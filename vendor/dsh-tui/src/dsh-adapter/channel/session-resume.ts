@@ -1,5 +1,7 @@
 import type { Agent, AgentHandle, CreateAgentOptions } from '@deepseek-ai/dsh-agent'
 import { randomUUID } from 'node:crypto'
+import { execFile } from 'node:child_process'
+import { promisify } from 'node:util'
 import type { Context } from '@deepseek-ai/cordis'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { explicitModelRoute, recordedModelRoute, resolveModelRoute, validateModelRoute } from '../../modelRoute.js'
@@ -11,12 +13,64 @@ import { readModelPref } from '../../modelPrefs.js'
 import { migratePresetPref, presetOverrideFromEnv, readPresetPref } from '../../presetPrefs.js'
 import { agentViewHasTurns } from '../agent-view.js'
 import {
+  clearStaleHolderEvidence,
+  installStaleHolderEvidence,
   occupancyOf,
   readSessionOwners,
   reserveMount,
   reserveNewSession,
   type MountReservation,
 } from '../../sessionMounts.js'
+
+const exec = promisify(execFile)
+
+/**
+ * Start time (epoch ms) of the process CURRENTLY bearing a pid, via PowerShell
+ * — the pid-reuse witness. Spawned only on the occupied-refusal path (a rare,
+ * user-blocked state), never per render or per listing row. Undefined when the
+ * pid is gone or the query fails; a failure must degrade to the plain
+ * "held by pid" toast rather than block the refusal.
+ */
+const bearerStartTime = async (pid: number): Promise<number | undefined> => {
+  try {
+    const { stdout } = await exec(
+      'powershell.exe',
+      ['-NoProfile', '-Command', `[DateTimeOffset]::new((Get-Process -Id ${pid}).StartTime).ToUnixTimeMilliseconds()`],
+      { windowsHide: true, timeout: 10_000 },
+    )
+    const startedAt = Number.parseInt(stdout.trim(), 10)
+    return Number.isFinite(startedAt) ? startedAt : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Pid-reuse recovery (2026-10-29 incident): the picker said "held by pid
+ * 22776" while that pid had been RECYCLED into an unrelated conhost — the
+ * ledger's liveness check cannot see that, and the session became unopenable.
+ * Here the refusal path buys the one extra witness the ledger design
+ * deliberately lacks: when the pid's current bearer provably started AFTER
+ * the holder record did, the record is an orphan, and one re-claim with that
+ * evidence installed prunes it under the ledger lock. Not provable (query
+ * failed, or the bearer IS the holder) → the original occupied refusal.
+ */
+const reclaimThroughStaleHolder = async (
+  sessionId: string,
+  holderPid: number,
+  holderStartedAt: number,
+): Promise<Awaited<ReturnType<typeof reserveMount>>> => {
+  const bearerStartedAt = await bearerStartTime(holderPid)
+  if (bearerStartedAt === undefined || bearerStartedAt <= holderStartedAt) {
+    return { ok: false, reason: 'occupied', holders: [holderPid] }
+  }
+  installStaleHolderEvidence(new Map([[holderPid, bearerStartedAt]]))
+  try {
+    return await reserveMount(sessionId)
+  } finally {
+    clearStaleHolderEvidence()
+  }
+}
 import { ensureLegacySessionEventTypes } from '../compat/index.js'
 import { snapshotLiveSessionEvents } from '../compat/liveSession.js'
 import { composePreset, resolvePersistedPreset, resolvePersistedRoute } from '../presets.js'
@@ -277,8 +331,20 @@ export function createSessionResumeActions(
   ): Promise<{ readonly ok: true; readonly reservation: MountReservation } | { readonly ok: false; readonly result: ResumeResult }> => {
     // Cheap pre-filter for the friendly toast: the authoritative conflict test
     // runs inside reserveMount, under the ledger lock.
-    const occupancy = occupancyOf(sessionId, readSessionOwners())
+    const owners = readSessionOwners()
+    const occupancy = occupancyOf(sessionId, owners)
     if (occupancy.kind === 'occupied') {
+      // Pid-reuse recovery: a "holder" whose pid now belongs to a process that
+      // started AFTER the holder record is a recycled pid, not a peer — one
+      // witnessed re-claim prunes the orphan record and takes the session.
+      const holder = owners.get(sessionId)
+      if (holder !== undefined && holder.pid === occupancy.pid) {
+        const reclaimed = await reclaimThroughStaleHolder(sessionId, holder.pid, holder.startedAt)
+        if (reclaimed.ok) {
+          deps.notify(t('resume-session-occupied-recovered', { pid: occupancy.pid }), { color: 'warning', timeoutMs: 8000 })
+          return { ok: true, reservation: reclaimed.reservation }
+        }
+      }
       deps.notify(t('resume-session-occupied', { pid: occupancy.pid }), { color: 'error', timeoutMs: 8000 })
       return { ok: false, result: { ok: false, reason: 'occupied', pid: occupancy.pid } }
     }
