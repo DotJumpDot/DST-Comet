@@ -309,3 +309,32 @@ window height, which config cannot know — use a post-launch CDP `Browser.setWi
 (requested `(-1800,300)` → actual `(-1800,300)`). The flags themselves are correct: offset 120 →
 `-1800,220`, offset 150 → `-1770,250`. Note a mid-test `y=1001` reading was the human dragging the
 windows to the bottom of screen 2, **not** a defect — recorded so nobody "fixes" it later.
+
+---
+
+## Round 7 verification (2026-10-29 17:37–17:42 +07) — all four fixes hold
+
+Constellation `3c9f97e` (D1/D2/D3) + `7d6529a` (placement), 61/61 tests. Matrix:
+`Bug_Bounty/Progress/harness-mcp/r6-smoke/RESULTS-r7.md`. **No new defects.**
+
+- **D1 — closed, tested at both reachable layers.** The lead's exact failing shape (`{expect, probe, miss}`
+  with no `action`) is now rejected at save *and* at run time after being hand-inserted into
+  `fixture-recipes.json` — the disk path that previously bypassed validation is the one that mattered,
+  and it now refuses with `got undefined — fix it with fixture_recipe_set` instead of reporting
+  `COMPLETE`. The executor `default:` arm (`recipe.ts:361`) is present as defence-in-depth, so a verb
+  added to the file format by hand fails loudly rather than silently no-opping.
+- **D2 — correct in both directions, no widening.** `127.0.0.1:8799` allowed, `127.0.0.1:8800` denied
+  with the port shown next to the armed entry; a portless entry still covers every port (verified by
+  reaching the socket and getting `ECONNREFUSED` rather than a scope denial). The old message read as a
+  paradox; this one reads as a mismatch.
+- **D3 — honest.** "different bytes than the MISS CONTROL (no owner leg was sent — the DATA_LEAK verdict
+  is unavailable)" when `own` is absent, owner wording when it is present.
+- **Placement — measured, and right.** Both owners anchored with `anchorGap = 0` against the
+  taskbar-excluded work area while their launch flags said `y=100`, which proves the post-launch
+  `setWindowBounds` correction executed; y identical across owners (cascade x-only), x one 30 px step
+  apart; both on the left monitor. The human's bottom-of-screen-2 preference is now the measured
+  behaviour rather than a manual drag.
+
+**Still open, by design:** the live `grant → expect allow → revoke → expect deny` run on a real
+engagement with two logged-in identities. All primitives behind it are control-verified; running it on
+the local oracle would prove the plumbing, not the point. Awaiting the human's choice of engagement.
