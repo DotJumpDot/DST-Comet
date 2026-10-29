@@ -6,6 +6,25 @@
 and a `&open=1` broken-boundary switch), never against a third party. Cross-reference:
 `Bug_Bounty/Progress/harness-mcp/r6-smoke/RESULTS-r6.md` / `RESULTS-r7.md`.
 
+> **Status (2026-10-29, later) — ALL THREE DEFECTS FIXED (Constellation `1600b9b`, 67/67 tests, smoke 90):**
+> - **D4 FIXED** — `verdictOf` now requires a STATUS difference for a denial: a same-status non-2xx
+>   pair is NOT_FOUND ("miss on both sides — error pages echo the requested id, so the bytes differ by
+>   construction"). `r8-blind` (404/404 echo pair) → NOT_FOUND → INCONCLUSIVE, no evidence chained (the
+>   bogus entry-#4 class cannot recur); `r8-held` (403 vs 404) still AUTHORIZATION_DENIAL, pinned by
+>   test. Documented honest cost: same-status 403/403 with genuinely different denial reasons also
+>   reads NOT_FOUND — conservative by design; reshape the control so the statuses diverge.
+> - **D5 FIXED as the §5 feature** — `parkWindow` runs on EVERY launch path (minimized starts
+>   excepted): top = availTop + availH − peekPx with the peek from `CONSTELLATION_WINDOW_PEEK_PX` /
+>   `--window-peek-px` (default **36** = the human's measured drag; clamped to the 20–60 clickable
+>   band), NEVER derived from window height (the stale-43px-box race is structurally gone), never
+>   clamped fully on-screen, bounds read back and the park retried once for DPI/DIP rounding —
+>   verification by measurement, exactly per §5. The parked demo window is untouched (the human's to
+>   close).
+> - **D6 FIXED** — `fixture_recipe_run`'s failure output now carries the tail of the step log, so the
+>   ⚠ TRANSITION DENY→ALLOW line prints mid-run even when the run then fails the assertion.
+> - Scope note answered: the 90-tool inventory is asserted by the exact-list mcp-smoke gate
+>   (`MCP SMOKE PASS (90 tools registered)`), which the lead's run also confirmed.
+
 **Headline: the new tooling is real and mostly excellent — but the cell ledger can still report a
 false NEGATIVE, and the bottom-anchor placement is wrong on one launch path.**
 
@@ -131,3 +150,49 @@ direction that costs a hunt — a blind cell silently counted as tested. D5 seco
 helper, with the peek from config instead of a stale box. D6 third (cosmetic).
 
 No new tooling is needed for any of the three; they are corrections inside code that already exists.
+
+---
+
+## 7. Round-9 re-verification (2026-10-29 18:46–18:52) — D4/D5/D6 fixed, plus a new finding on focus
+
+Constellation `1600b9b` (67/67 tests, `MCP SMOKE PASS (90 tools registered)`). The MCP server was confirmed
+to have restarted **after** the fix commit (process start 11:45:27Z vs commit 11:43:43Z), so these are
+live-build results, not a stale process.
+
+| defect | re-test | result |
+|---|---|---|
+| D4 | `cell_run r8-blind` (404 vs 404, ids differ) | **`NOT_FOUND … status INCONCLUSIVE`**, message cites round-8 D4, **no evidence chained** ✅ |
+| D4 healthy shape | `cell_run r8-held` (403 vs 404) | `AUTHORIZATION_DENIAL … NEGATIVE`, chain #6 ✅ — untouched |
+| D5 | fresh owner via `browser_navigate` | `screenY = 996`, `visibleStrip = 36` ✅ exactly the drag spec |
+| D5 keepalive path | keepalive's initial visit launched the window | `screenY = 996`, `visibleStrip = 36`, `IsIconic = false` ✅ — the stale-43 px race is gone on the path that had it |
+| D6 | baseline reset → stage 1 DENY → stage 2 open | the failed run now prints `[step 1] ⚠ TRANSITION DENY→ALLOW — this boundary OPENED since its last baseline: candidate (cited in the evidence chain)`; chain #7 ✅ |
+
+One deviation, not a defect: parked `left` is the per-owner cascade (`-1770`, gap 150) rather than the
+exact 367 from the human's drag — better for N windows, which line up sideways instead of stacking. The
+peek is the number that matters and it matches.
+
+### D7 — NEW: spawning steals focus; the lever is the **creation flag**, not activation calls
+
+Measured with `GetForegroundWindow` around each spawn (foreground was the DSH TUI window, pid 1972):
+
+| spawn | foreground after | parked? |
+|---|---|---|
+| normal `browser_launch` | **`[focus-a] info — no job set - Google Chrome`** | yes (peek 36) — but **focus stolen** |
+| `browser_launch` + `--start-minimized` | **unchanged** (still the DSH TUI) | yes (`-1770,996`, peek 36, `IsIconic = false`) |
+
+So the theft happens at **window creation**, not from any `bringToFront`/`SetForegroundWindow` in our code
+(a background process cannot legally take the foreground — Chromium's creation path does). The working
+recipe, both halves measured:
+
+1. **Create the window minimized** — `--start-minimized` on the Chrome command line (Windows maps it to a
+   no-activate show). This alone removes the theft.
+2. **Then park it** with `Browser.setWindowBounds` — verified to leave it visible at the peek
+   (`visibleStrip = 36`, not minimized) **with the foreground window unchanged**. The manual equivalent
+   works too: `ShowWindow(SW_SHOWNOACTIVATE)` + `SetWindowPos(…, SWP_NOACTIVATE | SWP_NOZORDER)` moved a
+   window to `(-1650,996)` at peek 36 with the foreground untouched.
+
+**Code change implied:** pass `--start-minimized` at creation for every spawned owner, and **do not skip
+the park when the start was minimized** — the current "minimized starts excepted" rule leaves the window
+taskbar-only and loses the tab-strip peek. Using `CONSTELLATION_START_MINIMIZED=1` as the global switch is
+the blunt version, because it hits exactly that exception; the flag belongs in the launch path with the
+park still applied.
