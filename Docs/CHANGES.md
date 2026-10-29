@@ -14,6 +14,16 @@ tests assert on the bytes a mock echo server received. The advice's §5
 runner note is documented in Bug_Bounty AGENTS.md §5 (taskkill, never
 Stop-Process).
 
+Session/workspace permanent history removal (2026-10-30, user ask):
+`vendor/dsh-tui/src/screens/SessionSupervisor.tsx` (Ctrl+D delete enabled
+for the DSH backend — the channel plumbing always supported it, only the
+key gate hid it; hint updated; bulk-removal confirm bar), `src/screens/
+sessionSupervisor/model.ts` (menu action `remove-history` for history-only
+unregistered rows), `src/screens/sessionSupervisor/useSessionSupervisor.ts`
+(deleteHistoryGroup — permanently deletes every session behind one
+history-only row via the guarded channel path, occupancy-checked, kept
+sessions counted), `src/i18n.ts` (en+zh keys).
+
 Run-9 fixes (both advice files, 2026-10-29): `plugins/dst-comet-agent-tools/
 index.js` + `probe-inject-guard.mjs` (commit `07c24d8` — context_status died
 with `tokenMeter.contextPressure is not a function` because the installed
