@@ -111,6 +111,9 @@ export function SessionSupervisor({
     setConfirmDelete,
     renameSession,
     deleteSession,
+    confirmRemoveHistory,
+    setConfirmRemoveHistory,
+    deleteHistoryGroup,
     entries,
     sessions,
     loading,
@@ -182,6 +185,7 @@ export function SessionSupervisor({
   const [filterFocused, setFilterFocused] = useState(false)
   const cursorActive = approval === null && menu === undefined && tabMenu === undefined
     && rename === undefined && confirmRemove === undefined && sessionRename === undefined && confirmDelete === undefined
+    && confirmRemoveHistory === undefined
   const searchCursor = filterFocused || (!railVisible && activePane === 'rail')
   const nativeCursor = useNativeCursor()
   const newSessionCursorRef = useDeclaredCursor({
@@ -315,6 +319,16 @@ export function SessionSupervisor({
       }
       return
     }
+    if (confirmRemoveHistory !== undefined) {
+      if (isPlainReturn(key)) {
+        const path = confirmRemoveHistory
+        setConfirmRemoveHistory(undefined)
+        deleteHistoryGroup(path)
+      } else if (key.escape) {
+        setConfirmRemoveHistory(undefined)
+      }
+      return
+    }
     if (menuRef.current !== undefined) {
       const current = menuRef.current
       const entry = railEntries.find(candidate => samePath(candidate.path, current.path))
@@ -424,8 +438,10 @@ export function SessionSupervisor({
       if (focusedSession !== undefined) stopSession(focusedSession)
       return
     }
-    // Another backend's stored sessions are renamed / deleted through its
-    // catalog (the DSH screen keeps its keys exactly as they were).
+    // Rename rides the backend's own catalog only (a DSH rename goes through
+    // the session's own /rename surface); DELETE works for every backend —
+    // the wording follows backendCapabilities (DSH deletes permanently, an
+    // archive backend archives).
     if (!dshBackend && isMod(key) && input === 'r') {
       if (activePane === 'list' && focusedSession !== undefined) {
         const next = { id: focusedSession.id, draft: focusedSession.title.text }
@@ -434,7 +450,7 @@ export function SessionSupervisor({
       }
       return
     }
-    if (!dshBackend && isMod(key) && input === 'd') {
+    if (isMod(key) && input === 'd') {
       if (activePane === 'list' && focusedSession !== undefined) setConfirmDelete(focusedSession.id)
       return
     }
@@ -870,6 +886,16 @@ export function SessionSupervisor({
           </Text>
         </Box>
       )}
+      {confirmRemoveHistory !== undefined && (() => {
+        const entry = railEntries.find(candidate => candidate.from === 'unregistered' && samePath(candidate.path, confirmRemoveHistory))
+        return (
+          <Box flexShrink={0} paddingX={1}>
+            <Text color="error">
+              {truncateWidth(` ${t('supervisor-removehistory-confirm', { name: entry?.title ?? confirmRemoveHistory, count: String(entry?.sessionCount ?? 0) })}`, columns - 3)}
+            </Text>
+          </Box>
+        )
+      })()}
       {rename !== undefined && (
         <Box height={1} flexShrink={0}>
           <SearchBox

@@ -56,9 +56,11 @@ export function noticeLines(text: string | undefined, width: number): string[] {
   return kept
 }
 
-export type MenuAction = 'edit' | 'new' | 'rename' | 'remove'
+export type MenuAction = 'edit' | 'new' | 'rename' | 'remove' | 'remove-history'
 export const MENU_ACTIONS: readonly MenuAction[] = ['edit', 'new', 'rename', 'remove']
-const HISTORY_MENU_ACTIONS: readonly MenuAction[] = ['edit', 'new']
+/** History-only rows have no registration to rename or drop — their "remove"
+ *  deletes the SESSIONS themselves (the row exists only because they do). */
+const HISTORY_MENU_ACTIONS: readonly MenuAction[] = ['edit', 'new', 'remove-history']
 export function menuActionsFor(entry: RailEntry): readonly MenuAction[] {
   return entry.from === 'unregistered' ? HISTORY_MENU_ACTIONS : MENU_ACTIONS
 }
@@ -69,6 +71,7 @@ export const MENU_LABEL_KEYS = {
   new: 'home-menu-new',
   rename: 'home-menu-rename',
   remove: 'home-menu-remove',
+  'remove-history': 'home-menu-remove-history',
 } as const
 
 /**

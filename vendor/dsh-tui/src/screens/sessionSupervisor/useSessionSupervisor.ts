@@ -321,6 +321,8 @@ export function useSessionSupervisor(input: SessionSupervisorInput) {
   const [menu, setMenu] = useState<{ path: string; col: number; row: number; item: number } | undefined>(undefined)
   const [rename, setRename] = useState<{ path: string; draft: string } | undefined>(undefined)
   const [confirmRemove, setConfirmRemove] = useState<string | undefined>(undefined)
+  /** Path of the UNREGISTERED (history-only) row pending bulk session deletion. */
+  const [confirmRemoveHistory, setConfirmRemoveHistory] = useState<string | undefined>(undefined)
 
   const railRef = useRef(railFocus)
   railRef.current = railFocus
@@ -718,6 +720,39 @@ export function useSessionSupervisor(input: SessionSupervisorInput) {
       .catch(error => report(t('workspace-remove-failed', { err: message(error) }), 'error'))
   }, [channel, reload, report])
 
+  /**
+   * Permanently delete every session behind one UNREGISTERED (history-only)
+   * workspace row. The row exists only because these sessions do, so removing
+   * them all removes the history itself — the row vanishes on reload. The
+   * session this terminal is attached to and any session another terminal
+   * holds are kept and counted (deleting under a live writer would corrupt
+   * that terminal's transcript); when any are kept, the row stays for them.
+   */
+  const deleteHistoryGroup = useCallback((path: string): void => {
+    const group = groupedEntries.get(path) ?? []
+    if (group.length === 0) return
+    const label = basename(path) || t('supervisor-unregistered')
+    void (async () => {
+      let deleted = 0
+      let kept = 0
+      for (const session of group) {
+        if (liveStateOf(session.id)?.current === true || holderOf(session.id) !== undefined) {
+          kept += 1
+          continue
+        }
+        try {
+          if (await channel.deleteSession(session.id)) deleted += 1
+          else kept += 1
+        } catch {
+          kept += 1
+        }
+      }
+      report(t('supervisor-removehistory-done', { count: String(deleted), name: label })
+        + (kept > 0 ? ` · ${t('supervisor-removehistory-kept', { kept: String(kept) })}` : ''), 'info')
+      await reload()
+    })()
+  }, [channel, groupedEntries, holderOf, liveStateOf, reload, report])
+
   /** Stop a parked background session; the attached one is not stoppable. */
   const stopSession = useCallback((session: SessionSummary): void => {
     const state = liveStateOf(session.id)
@@ -747,6 +782,7 @@ export function useSessionSupervisor(input: SessionSupervisorInput) {
     if (action === undefined) return
     if (action === 'edit') selectEntry(entry)
     else if (action === 'new') newSessionIn(entry)
+    else if (action === 'remove-history') setConfirmRemoveHistory(entry.path)
     // The fallback group is not a registration, so there is no ledger row to
     // rename or drop: those two actions would either fail or (worse) try to
     // mutate a record that does not exist.
@@ -814,6 +850,9 @@ export function useSessionSupervisor(input: SessionSupervisorInput) {
     setRename,
     confirmRemove,
     setConfirmRemove,
+    confirmRemoveHistory,
+    setConfirmRemoveHistory,
+    deleteHistoryGroup,
     railRef,
     menuRef,
     queryRef,
