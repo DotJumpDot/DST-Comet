@@ -608,6 +608,11 @@ export function MessageList({
 }) {
   const lang = React.useSyncExternalStore(subscribeLang, getLang)
   const hiddenCount = rows.length - RENDERED_ROW_CAP
+  // RENDERED_ROW_CAP head-slide forensics: hiddenCount is the number of rows
+  // the cap window has dropped from the head of the rendered list. Every row
+  // APPENDED past the cap bumps it by one — see the layout effect, where the
+  // dropped height is compensated so the reader's position cannot slide.
+  const lastHiddenCountRef = React.useRef(hiddenCount)
   // The thinking filter runs BEFORE virtualization so window indices line up.
   //
   // Fingerprint memo: every scroll tick re-rendered this pipeline even when
@@ -1510,6 +1515,35 @@ export function MessageList({
       }
     }
     if (scrollHandle) {
+      // RENDERED_ROW_CAP head-slide compensation (user report 2026-10-29:
+      // "the thing I want to read goes up every time the model emits a new
+      // line"). Each row appended past the cap drops one row off the head of
+      // the rendered window; the content above the reader shrinks by that
+      // row's height and, with scrollTop unchanged, everything on screen
+      // slides UP. It also shifts every visibleRows index, so the anchor
+      // correction below cannot fire (its id-at-index check fails) — this
+      // block IS the correction for that geometry change. anchorBy shifts
+      // the committed position without touching user intent (no pending
+      // drain, no sticky clear), and translates scrollPrevMax so the shift
+      // cannot read as "scrolled past the old max" and restore sticky.
+      // Sticky views pin to the bottom: the head-drop does not move them.
+      {
+        const prevHidden = lastHiddenCountRef.current
+        if (!showAll && hiddenCount !== prevHidden && !scrollHandle.isSticky()) {
+          let dropped = 0
+          const from = Math.min(prevHidden, hiddenCount)
+          const to = Math.max(prevHidden, hiddenCount)
+          for (let j = from; j < to && j < rows.length; j++) dropped += heightOf(rows[j]!)
+          if (dropped > 0) {
+            // hiddenCount grew (rows left the head): content above shrank by
+            // `dropped`, so scrollTop must fall by the same amount to keep
+            // the reader's row on its screen line. A DECREASE (rows restored)
+            // grows the content and the sign flips naturally.
+            scrollHandle.anchorBy(prevHidden < hiddenCount ? -dropped : dropped)
+          }
+        }
+        lastHiddenCountRef.current = hiddenCount
+      }
       // Fresh bounds must move with a prefix's real height, too: an estimated
       // max can otherwise clamp away a positive correction larger than overscan.
       const mountedTop = top ?? base + topPad

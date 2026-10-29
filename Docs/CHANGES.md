@@ -122,6 +122,13 @@ paths name it), `src/tools/fixture.ts` (forge strips a caller-provided
 extension; public config field), `src/tools/http.ts` (http_replay without
 capture_id returns the latest id), + chain regression test (46/46).
 
+## 2026-10-29 (latest) — reading history while streaming: RENDERED_ROW_CAP head-slide fix
+
+| File | Why |
+|---|---|
+| `src/components/MessageList.tsx` | user report "the thing I want to read goes up every time the model emits a new line": every row appended past the 120-row RENDERED_ROW_CAP drops one row off the head of the rendered window — content above the reader shrinks, scrollTop stays, so the whole screen slides up; the index shift also broke the anchor correction's id-at-index check. The layout effect now compensates the dropped rows' height via anchorBy (skipped when sticky — the tail pin doesn't move). Repro-verified: marker lost 26-38/40 samples before, 0 after (wheel path 0-3 rows one-time settle from estimate-height boundary rows) |
+| `scripts/repro-scroll-drift.tsx` (new) + `scripts/run-verify-build.mjs` + `package.json` | gate `verify:scroll-drift`: PgUp and wheel paths scroll to mid-history, 4 s of tail streaming (text growth + row appends), marker's screen row sampled continuously — never lost, settle ≤3 |
+
 ## 2026-10-29 (later still) — session-mount pid-reuse recovery
 
 | File | Why |

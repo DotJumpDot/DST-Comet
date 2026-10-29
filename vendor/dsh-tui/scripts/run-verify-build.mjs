@@ -90,6 +90,7 @@ const GATES = [
   'verify:chat-overlay',
   'verify:i18n',
   'verify:session-mount-stale',
+  'verify:scroll-drift',
   'verify:approval-visibility',
   'verify:adapter-skeleton',
   'verify:adapter-ports',
