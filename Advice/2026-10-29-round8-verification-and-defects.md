@@ -196,3 +196,55 @@ the park when the start was minimized** — the current "minimized starts except
 taskbar-only and loses the tab-strip peek. Using `CONSTELLATION_START_MINIMIZED=1` as the global switch is
 the blunt version, because it hits exactly that exception; the flag belongs in the launch path with the
 park still applied.
+
+### D7 resolution (measured 19:05–19:12) — **no launch flag prevents it; a focus watchdog does**
+
+**Correction first: the `--start-minimized` conclusion above was wrong.** It came from a single
+`GetForegroundWindow` snapshot taken *after* the OS had already handed focus back. Continuous polling
+(100 ms) across a normal spawn shows the real timeline:
+
+```
+ 0.02s  fg '? ?? Continue Bugcrowd Run 6 Handoff'   (the human's TUI, pid 1972)
+ 8.46s  fg 'about:blank - Google Chrome'            <-- STEAL, at window creation
+ 9.00s  fg '[focus-e] info — no job set - Google Chrome'   (title refresh, same hwnd)
+10.55s  fg '? ?? Continue Bugcrowd Run 6 Handoff'   (focus returns on its own ~2.1 s later)
+```
+
+So Chrome holds the foreground for about two seconds and then yields it. That is worse than a snapshot
+suggests — it steals, it is felt, and it looks fine to any single-point measurement. Methodology lesson:
+**a one-shot focus check is invalid; poll through the spawn.**
+
+**The mechanism.** Windows grants the foreground to Chromium's newly shown top-level window; nothing in the
+harness calls `bringToFront`, and a background process cannot legally take the foreground itself. Since no
+launch flag changes it (minimized start included), the only reliable counter is to take the focus back.
+
+**The fix that works — a focus watchdog.** Record the foreground hwnd immediately before the spawn; poll at
+~40 ms for a few seconds; whenever the foreground becomes a window of the Chrome we just launched, restore
+the captured hwnd. Plain `SetForegroundWindow` is refused to a background process, so the restore must use
+the attach-thread trick:
+
+```csharp
+me = GetCurrentThreadId(); fgT = threadOf(foreground); tgT = threadOf(target);
+AttachThreadInput(me, fgT, true); AttachThreadInput(me, tgT, true);
+SetForegroundWindow(target);
+AttachThreadInput(me, fgT, false); AttachThreadInput(me, tgT, false);
+```
+
+Measured on the very next spawn (`focus-g`, same build, `--start-minimized`):
+
+```
+watchdog: protecting hwnd=526522 '? ?? Continue Bugcrowd Run 6 Handoff'
+  5.34s STEAL by hwnd=855254 '[focus-g] [focus-g] - Google Chrome' -> restoring
+        after restore: hwnd=526522 '? ?? Continue Bugcrowd Run 6 Handoff'
+watchdog end — steals countered: 1
+```
+
+The human, watching their own screen, reported it as flawless — the window still appeared parked at the
+bottom with the tab strip, and their focus never left the TUI.
+
+**Implementation notes.** Hook the watchdog right after each launch *and* after any later step that can
+activate the window (info-tab creation, `setWindowBounds` park, navigation) — each of those re-shows the
+window. Confine it to the process/profile just launched so it never fights a window the human opened, keep
+it short (3–5 s at 40 ms), and drop out immediately if the human activates the Chrome window themselves.
+Residual: on a slow machine the window may still paint for a frame before the restore lands; the only
+truly windowless option is `--headless=new`, which conflicts with the tab-strip preference.
