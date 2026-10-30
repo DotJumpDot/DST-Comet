@@ -4,6 +4,22 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Run-11 fixes (2026-10-30, run-11 advice D11–D15): Constellation `588975e`
+(on top of the lead's own D10 `e9eeed7`) — `src/browser/tools.ts`
+(browser_run_code_unsafe gains an in-tool timeout that returns a
+distinguishable STILL_RUNNING, keeps the owner BUSY until the code settles,
+and reports the late result on the next call; cookie import audited as a
+handoff instead of scope-asserted, so a parent-domain cookie no longer
+forces a scope widening), `src/redact.ts` (fill/type/insertText/setPassword
+argument lists and "filling … with" call-log shapes masked at the
+errorResult boundary — Playwright errors echoed a lane password via a
+hidden-duplicate input), `src/tools/dupcheck.ts` (dupe_check queries
+keywords independently and merges by CVE id — NVD ANDs a joined string and
+reported 0 where "zendesk" alone returns 15; per-keyword counts + dropped-
+keyword warning + 0-is-UNCONFIRMED note), `src/browser/cookies.ts` (locked
+Cookies DB → EBUSY/EPERM mapped to close-Chrome/use-live-export guidance),
+tests 79→81.
+
 D9 fix (2026-10-30, run-10 advice): Constellation `ecf22af` — `src/tools/
 http.ts` (+ tests, 76→78): JSON array/scalar bodies were encoded through an
 object-only gate and reached servers as `[object Object]` text/plain (a
