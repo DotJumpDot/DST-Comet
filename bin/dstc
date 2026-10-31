@@ -4,6 +4,11 @@
 set -e
 : "${NODE_ENV:=production}"
 export NODE_ENV
+# Fork isolation (2026-10-30): pin comet's OWN state dir so another
+# dsh-tui-family fork (DST-Moon) cannot rewrite comet's settings/theme/
+# session state — the fork migrates the legacy ~/.dsh-tui once on first use.
+: "${DSH_TUI_STATE_DIR:=$HOME/.dsh-tui-comet}"
+export DSH_TUI_STATE_DIR
 if [ -n "$DSH_TUI_WORKSPACE" ]; then cd "$DSH_TUI_WORKSPACE"; fi
 
 command -v dsh >/dev/null 2>&1 || {
@@ -16,8 +21,8 @@ command -v dsh >/dev/null 2>&1 || {
 set --
 for a in "$@"; do
   if [ "$a" = "--resume" ]; then
-    if [ -f "$HOME/.dsh-tui/resume.txt" ]; then
-      DSH_TUI_RESUME_SESSION=$(cat "$HOME/.dsh-tui/resume.txt")
+    if [ -f "$DSH_TUI_STATE_DIR/resume.txt" ]; then
+      DSH_TUI_RESUME_SESSION=$(cat "$DSH_TUI_STATE_DIR/resume.txt")
       export DSH_TUI_RESUME_SESSION
     fi
   else

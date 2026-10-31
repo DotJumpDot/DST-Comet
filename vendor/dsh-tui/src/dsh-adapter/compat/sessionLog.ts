@@ -62,7 +62,7 @@ import {
 } from 'node:fs'
 import { dirname, join, sep } from 'node:path'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
-import { homeDir } from '../../utils/paths.js'
+import { homeDir, DATA_DIR } from '../../utils/paths.js'
 
 /**
  * Legacy third-party session-event types the TUI vouches for as ephemeral
@@ -99,6 +99,10 @@ export function sessionsRoots(): string[] {
   const dshHome = process.env.DSH_HOME
   roots.push(join(dshHome !== undefined && dshHome.trim().length > 0 ? dshHome : join(home, '.dsh'), 'sessions'))
   roots.push(join(home, '.dsh-tui', 'sessions'))
+  // The fork's state dir can be pinned per launcher (DSH_TUI_STATE_DIR,
+  // fork isolation 2026-10-30) — its sessions root belongs in the search
+  // alongside the legacy default.
+  roots.push(join(DATA_DIR, 'sessions'))
   return [...new Set(roots)]
 }
 
