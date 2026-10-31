@@ -4,6 +4,14 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+DPAPI assembly-load fix (2026-10-30, lead field report post-run-11):
+Constellation `16f1dfb` — `src/browser/cookies.ts` prepends
+`Add-Type -AssemblyName System.Security;` to the DPAPI helper (stock
+powershell.exe 5.1 -NoProfile does not auto-load it, so every
+`browser_cookies_import {profile_dir}` died with "Unable to find type
+[…ProtectedData]"); Windows-guarded protect→unprotect round-trip test
+(82/82).
+
 Fork isolation + crash fix (2026-10-30, user ask after creating the
 DST-Moon profile): Dsh_Tui_Comet `e4c0f70` (crash: the RENDERED_ROW_CAP
 compensation loop died on a sparse/mutated rows slot — "reading 'id' of
