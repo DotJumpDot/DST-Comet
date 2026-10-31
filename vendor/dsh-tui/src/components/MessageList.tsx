@@ -1066,8 +1066,11 @@ export function MessageList({
   // the length guard exists alongside the id key).
   const previewCacheRef = React.useRef(new Map<number, { len: number; imageCount: number; lang: Lang; preview: string }>())
 
+  // `row?.id`: the rows array is a live in-place projection and can carry a
+  // sparse/undefined slot mid-mutation — a height lookup must degrade to the
+  // estimate, never crash the render/layout pass (2026-10-30 crash).
   const heightOf = (row: ChatRow): number =>
-    heightsRef.current.get(row.id) ?? DEFAULT_ROW_HEIGHT
+    heightsRef.current.get(row?.id) ?? DEFAULT_ROW_HEIGHT
   // Reused offsets buffer: the prefix-scan itself must run every render
   // (heightsRef mutates in the measure effect), but the ARRAY need not be
   // fresh — offsets never escapes this render scope. A new 3200-slot array
@@ -1527,23 +1530,33 @@ export function MessageList({
       // drain, no sticky clear), and translates scrollPrevMax so the shift
       // cannot read as "scrolled past the old max" and restore sticky.
       // Sticky views pin to the bottom: the head-drop does not move them.
-      {
-        const prevHidden = lastHiddenCountRef.current
-        if (!showAll && hiddenCount !== prevHidden && !scrollHandle.isSticky()) {
-          let dropped = 0
-          const from = Math.min(prevHidden, hiddenCount)
-          const to = Math.max(prevHidden, hiddenCount)
-          for (let j = from; j < to && j < rows.length; j++) dropped += heightOf(rows[j]!)
-          if (dropped > 0) {
-            // hiddenCount grew (rows left the head): content above shrank by
-            // `dropped`, so scrollTop must fall by the same amount to keep
-            // the reader's row on its screen line. A DECREASE (rows restored)
-            // grows the content and the sign flips naturally.
-            scrollHandle.anchorBy(prevHidden < hiddenCount ? -dropped : dropped)
+        {
+          const prevHidden = lastHiddenCountRef.current
+          if (!showAll && hiddenCount !== prevHidden && !scrollHandle.isSticky()) {
+            let dropped = 0
+            const from = Math.min(prevHidden, hiddenCount)
+            const to = Math.max(prevHidden, hiddenCount)
+            for (let j = from; j < to && j < rows.length; j++) {
+              // `rows` is a live in-place projection: a concurrent mutation
+              // (or a sparse slot — .map skips holes when rendering, so the
+              // transcript still looks fine) can hand this indexed access an
+              // undefined entry. Height math tolerates a missing row; the
+              // layout effect must NEVER take the whole TUI down (crash
+              // 2026-10-30: "Cannot read properties of undefined (reading
+              // 'id')" at heightOf from exactly this loop).
+              const row = rows[j]
+              if (row !== undefined) dropped += heightOf(row)
+            }
+            if (dropped > 0) {
+              // hiddenCount grew (rows left the head): content above shrank by
+              // `dropped`, so scrollTop must fall by the same amount to keep
+              // the reader's row on its screen line. A DECREASE (rows restored)
+              // grows the content and the sign flips naturally.
+              scrollHandle.anchorBy(prevHidden < hiddenCount ? -dropped : dropped)
+            }
           }
+          lastHiddenCountRef.current = hiddenCount
         }
-        lastHiddenCountRef.current = hiddenCount
-      }
       // Fresh bounds must move with a prefix's real height, too: an estimated
       // max can otherwise clamp away a positive correction larger than overscan.
       const mountedTop = top ?? base + topPad
