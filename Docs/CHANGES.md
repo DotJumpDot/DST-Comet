@@ -4,6 +4,18 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Fork isolation + crash fix (2026-10-30, user ask after creating the
+DST-Moon profile): Dsh_Tui_Comet `e4c0f70` (crash: the RENDERED_ROW_CAP
+compensation loop died on a sparse/mutated rows slot — "reading 'id' of
+undefined" at heightOf — loop now skips undefined entries, heightOf is
+defensive) and `3427b6c` (every dsh-tui-family build hard-codes the same
+~/.dsh-tui regardless of dsh profile, so the DST-Moon sister fork rewrote
+comet's settings/theme/ledger state: DSH_TUI_STATE_DIR override in
+utils/paths.ts with a one-time legacy-dir migration, pinned to
+%USERPROFILE%\.dsh-tui-comet by bin/dstc, bin/dstc.cmd and both npm shims;
+resume.txt reads + session-log search roots follow; sessionMounts already
+followed DATA_DIR). Installed into the profile.
+
 Run-11 fixes (2026-10-30, run-11 advice D11–D15): Constellation `588975e`
 (on top of the lead's own D10 `e9eeed7`) — `src/browser/tools.ts`
 (browser_run_code_unsafe gains an in-tool timeout that returns a
