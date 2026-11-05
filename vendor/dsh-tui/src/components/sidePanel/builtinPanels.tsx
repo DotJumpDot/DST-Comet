@@ -293,6 +293,16 @@ function AgentsPanelAdapter({ focused, visible }: PanelProps): React.ReactNode {
       clearedIds={cleared}
       showCleared={showCleared}
       onToggleCleared={toggleAgentsClearedVisible}
+      onClearSettled={() => {
+        // Bulk fold: every roster id goes in — running/provisioning rows
+        // refuse the fold by design (isFolded's memberRunning override), so
+        // live work can never hide, while idle/stopped teammates fold NOW
+        // instead of waiting for the whole task board to complete.
+        clearAgents([
+          ...subagents.map(row => row.agentId),
+          ...(channel.team?.members ?? []).map(member => member.id),
+        ])
+      }}
     />
   )
 }

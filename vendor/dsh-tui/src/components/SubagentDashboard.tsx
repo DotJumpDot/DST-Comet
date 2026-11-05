@@ -47,12 +47,17 @@ export interface SubagentDashboardProps {
   focused?: boolean
   visible?: boolean
   /** DST Comet: ids the Agents tab folded away after the work finished.
-   *  Running/provisioning agents ignore the fold, so live work never hides. */
+ *  Running/provisioning agents ignore the fold, so live work never hides. */
   clearedIds?: ReadonlySet<string>
   /** Show the folded agents again (`c` toggles). */
   showCleared?: boolean
   /** Toggle the folded view (`c` in the dashboard / panel). */
   onToggleCleared?: () => void
+  /** DST Comet bulk fold (`x`): fold every settled row NOW — finished
+ *  children AND idle/stopped teammates, which otherwise wait for the whole
+ *  task board to complete before the auto-fold picks them up. Running rows
+ *  refuse the fold, so live work never hides. */
+  onClearSettled?: () => void
 }
 
 /** Accept Ink's Enter flag and the panel dispatcher's normalized alias. */
@@ -233,6 +238,7 @@ export function SubagentDashboard({
   clearedIds = EMPTY_CLEARED,
   showCleared = false,
   onToggleCleared,
+  onClearSettled,
 }: SubagentDashboardProps): React.ReactNode {
   const panelMode = variant === 'panel'
   // Focus follows the row's key: team mode reorders the rows, and the roster can shrink.
@@ -275,6 +281,9 @@ export function SubagentDashboard({
       ...ordered.filter(row => others.has(row)).map(rowEntry),
     ]
   const othersStart = model === undefined ? -1 : model.teammates.length
+  // Rows `x` would fold right now (settled or idle; live rows refuse).
+  const foldableCount = entries.reduce(
+    (count, entry) => count + (entry.key !== undefined && !memberRunning(entry.key) ? 1 : 0), 0)
   const focusOf = (state: { readonly index: number; readonly key?: string }): number => {
     const found = state.key === undefined ? -1 : entries.findIndex(entry => entry.key === state.key)
     return found >= 0 ? found : Math.min(state.index, Math.max(0, entries.length - 1))
@@ -332,6 +341,14 @@ export function SubagentDashboard({
       return
     }
 
+    // x = fold every settled row NOW (idle teammates included — they
+    // otherwise wait for the whole task board to finish).
+    if (input.toLowerCase() === 'x' && onClearSettled !== undefined) {
+      event.stopImmediatePropagation()
+      onClearSettled()
+      return
+    }
+
     // t = switch the task board between Doing and Finished.
     if (input.toLowerCase() === 't') {
       event.stopImmediatePropagation()
@@ -379,6 +396,11 @@ export function SubagentDashboard({
 
     if (input.toLowerCase() === 'c' && onToggleCleared !== undefined) {
       onToggleCleared()
+      return true
+    }
+
+    if (input.toLowerCase() === 'x' && onClearSettled !== undefined) {
+      onClearSettled()
       return true
     }
 
@@ -532,14 +554,17 @@ export function SubagentDashboard({
       {/* DST Comet footer: only the folded-agents count lives at the panel
           foot (user round 3: the tab chips belong with the task list; this
           line is the one that should sit below everything). flexGrow pins
-          it to the bottom edge instead of floating under the last row. */}
-      {clearedKnown.size > 0 && (
+          it to the bottom edge instead of floating under the last row.
+          It also surfaces `x fold settled` whenever idle/stopped rows are
+          waiting for the manual bulk fold (jora post-mortem ask). */}
+      {(clearedKnown.size > 0 || (onClearSettled !== undefined && foldableCount > 0)) && (
         <Box flexDirection="column" marginTop={1} paddingLeft={panelMode ? 1 : 0} flexShrink={0}>
           <Box flexGrow={1} />
           <Box flexDirection="row" onClick={onToggleCleared}>
             <Text dimColor wrap="truncate-end">
-              {`○ ${t('agents-cleared-count', { count: clearedKnown.size })}`}
-              {onToggleCleared === undefined ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
+              {clearedKnown.size > 0 ? `○ ${t('agents-cleared-count', { count: clearedKnown.size })}` : ''}
+              {onToggleCleared === undefined || clearedKnown.size === 0 ? '' : ` · ${t(showCleared ? 'agents-cleared-hide' : 'agents-cleared-show')}`}
+              {onClearSettled === undefined ? '' : ` · ${t('agents-fold-settled', { count: foldableCount })}`}
             </Text>
           </Box>
         </Box>

@@ -1890,6 +1890,9 @@ const dict = {
   'agents-cleared-count': { zh: '{{count}} 个已完成', en: '{{count}} finished' },
   'agents-cleared-show': { zh: 'c 显示', en: 'c show' },
   'agents-cleared-hide': { zh: 'c 收起', en: 'c hide' },
+  // x bulk-folds settled rows now (idle teammates included) instead of
+  // waiting for the whole task board to complete.
+  'agents-fold-settled': { zh: 'x 收起 {{count}} 个空闲', en: 'x fold {{count}} settled' },
   'team-lead-row': { zh: 'lead · 当前会话', en: 'lead · this session' },
   'team-lead-row-peer': { zh: 'lead', en: 'lead' },
   'team-self-mark': { zh: '当前会话', en: 'this session' },
