@@ -37,6 +37,9 @@ function guardedCtx(services, inject = []) {
 
 const measurements = []
 const compactions = []
+// Jora post-mortem: the goals service mock behind goal_set / goal_clear.
+let goalView
+const goalOps = []
 // Run-9 §1 reality check: the installed host (dsh 0.2.1-rc.2) ships a
 // TokenMeter with measure() but NO contextPressure() method — the pressure
 // state is read from the meter's registered 'contextPressure' session
@@ -52,6 +55,25 @@ const services = {
   },
   compaction: {
     compactNow: async (agent, signal) => { compactions.push({ agent, signal }); return { shadowedSeqs: [1, 2], shadowedTokenCount: 40_000 } },
+  },
+  goals: {
+    get: _agent => goalView,
+    create: (_agent, request) => {
+      goalOps.push(['create', request])
+      goalView = { id: 'g-1', revision: 1, objective: request.objective, phase: 'active', roundsStarted: 0, maxGoalRounds: request.maxGoalRounds ?? 8, activation: 'armed' }
+      return goalView
+    },
+    edit: (_agent, ref, request) => {
+      goalOps.push(['edit', ref, request])
+      goalView = { ...goalView, ...request, revision: goalView.revision + 1 }
+      return goalView
+    },
+    clear: (_agent, ref) => {
+      goalOps.push(['clear', ref])
+      const cleared = { id: goalView.id, revision: goalView.revision + 1 }
+      goalView = undefined
+      return cleared
+    },
   },
 }
 pressureStates.set('s-1', { pressureTokens: 80_000, contextWindow: 128_000, surfaceTokens: 79_000 })
@@ -88,18 +110,22 @@ const agentCtxWithTools = new Proxy({ ...agentCtx, tools: { register: (tool) => 
     throw new Error(`cannot get property "${String(prop)}" without inject`)
   },
 })
+const followups = []
 const agent = {
   ctx: agentCtxWithTools,
   session: { id: 's-1' },
   whenIdle: () => { whenIdle.push(1); return Promise.resolve() },
   runMaintenance: async () => undefined,
+  followup: (message) => { followups.push(message) },
 }
 created[0]({ agent })
 
-assert.equal(registered.length, 2, 'both tools registered on the agent realm')
+assert.equal(registered.length, 4, 'all four tools registered on the agent realm')
 const status = registered.find(tool => tool.name === 'context_status')
 const compact = registered.find(tool => tool.name === 'session_compact')
-assert.ok(status && compact)
+const goalSet = registered.find(tool => tool.name === 'goal_set')
+const goalClear = registered.find(tool => tool.name === 'goal_clear')
+assert.ok(status && compact && goalSet && goalClear)
 
 // context_status must resolve the meter through get(), not the guard.
 const statusValue = await status.execute({}, { agent, signal: new AbortController().signal })
@@ -117,6 +143,36 @@ await new Promise(resolve => setImmediate(resolve))
 assert.equal(whenIdle.length, 1)
 assert.equal(compactions.length, 1)
 assert.equal(compactions[0].agent, agent)
+// Jora post-mortem: after a finished compaction the agent continues ITSELF —
+// one synthetic follow-up wakes the driver with the outcome.
+assert.equal(followups.length, 1, 'compaction continues the agent via followup')
+assert.match(followups[0].content[0].text, /<self_compact>/)
+assert.match(followups[0].content[0].text, /Compaction finished/)
+assert.equal(followups[0].source.kind, 'dst-comet')
+assert.equal(followups[0].role, 'user')
+
+// goal_set creates when no goal exists, then edits the current one in place.
+let goalValue = await goalSet.execute({ objective: 'hunt the jora idor' }, { agent, signal: new AbortController().signal })
+assert.equal(goalValue.action, 'created')
+assert.equal(goalValue.goal.objective, 'hunt the jora idor')
+assert.equal(goalValue.goal.phase, 'active')
+goalValue = await goalSet.execute({ objective: 'widen to all bug bounty programs', max_goal_rounds: 40 }, { agent, signal: new AbortController().signal })
+assert.equal(goalValue.action, 'edited')
+assert.equal(goalValue.goal.objective, 'widen to all bug bounty programs')
+assert.equal(goalValue.goal.maxGoalRounds, 40)
+assert.equal(goalValue.goal.revision, 2)
+// goal_clear drops it; a second clear says so honestly.
+const clearedGoal = await goalClear.execute({}, { agent, signal: new AbortController().signal })
+assert.equal(clearedGoal.action, 'cleared')
+assert.equal(clearedGoal.goal, null)
+await assert.rejects(
+  goalClear.execute({}, { agent, signal: new AbortController().signal }),
+  /no current goal/,
+)
+await assert.rejects(
+  goalSet.execute({}, { agent, signal: new AbortController().signal }),
+  /pass objective and\/or max_goal_rounds/,
+)
 
 // The old failure shape, demonstrated: property access on the guarded ctx throws.
 assert.throws(() => agentCtxWithTools.tokenMeter, /cannot get property "tokenMeter" without inject/)
@@ -147,9 +203,14 @@ await assert.rejects(
   /no token meter/,
 )
 await assert.rejects(
-  bareRegistered.find(tool => tool.name === 'session_compact').execute({}, { agent: bareAgent, signal: new AbortController().signal }),
-  /does not expose idle compaction/,
+  bareRegistered.find(tool => tool.name === 'goal_set').execute({ objective: 'x' }, { agent: bareAgent, signal: new AbortController().signal }),
+  /no goals service/,
 )
+// Jora post-mortem fix 1: the bare realm has the agent API but no resolvable
+// compaction service — the tool now SCHEDULES anyway (the guard no longer
+// demands the lazy service mid-turn; it is resolved at idle with one retry).
+const bareCompactValue = await bareRegistered.find(tool => tool.name === 'session_compact').execute({}, { agent: bareAgent, signal: new AbortController().signal })
+assert.equal(bareCompactValue.scheduled, true)
 
 // Newer hosts expose tokenMeter.contextPressure() — that path must still win
 // when present (and no projection lookup happens).
