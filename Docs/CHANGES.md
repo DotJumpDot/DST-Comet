@@ -20,7 +20,16 @@ stub), `scripts/mcp-smoke.ts` (90 → 94 tools), `tests/unit.spec.ts` (83 → 94
 Bug_Bounty — `.dsh/skills/mcp-surface-hunt/SKILL.md` (H1 routing + gate) and
 `Progress/bugcrowd/runs/LANE-TEMPLATE-mcp.md` (H2 lane page + spawn block).
 Installed profile — disabled `vulnmcp` intel-server entry (H3; enable only
-for a targeted prior-art pass).
+for a targeted prior-art pass). Lead verification round (same evening): the
+live 29-check drill caught `mcp_diff` stamping write and index paths in two
+`snapshotPaths()` calls that could straddle a millisecond tick — index naming
+a file never written, next diff reading an empty baseline as all-added —
+fixed by the lead in Constellation `9a694f3` (+ regression test); and closed
+the drill's `cve_ids` gap: `dupe_check {cve_ids:[...]}` resolves KNOWN ids
+via direct NVD cveId lookups (keyword search only sees the 10 newest, so the
+drill's own "litellm" check missed July's KEV CVE-2026-59822) with the same
+KEV/Circl enrichment, `CONSTELLATION_NVD_BASE` override for offline tests
+(96/96 tests, 94 tools).
 
 Jora post-mortem round (2026-11-05, after session 571d24fd died mid-report):
 the lead's session bricked when the opencode-go upstream stopped accepting
