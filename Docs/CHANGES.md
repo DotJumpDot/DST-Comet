@@ -4,6 +4,29 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Jora post-mortem round (2026-11-05, after session 571d24fd died mid-report):
+the lead's session bricked when the opencode-go upstream stopped accepting
+images mid-run — every request 400'd "image input is not available on this
+engine" while 5 evidence screenshots rode permanently in the surface (the
+stock offload executor only reacts to locally-raised IMAGE_OFFLOAD budget
+failures, never an upstream capability 400). Ops: one image/offload event
+appended to the session log (5 targets, backup kept) revives it; profile
+agent-team cap raised to 100 members / 1000 tasks. Code: Dsh_Tui_Comet —
+`plugins/dst-comet-agent-tools/index.js` 0.2.0 (session_compact guard no
+longer demands the lazy compaction service mid-turn — the one live call threw
+"does not expose idle compaction"; after compaction the agent now CONTINUES
+ITSELF via a synthetic follow-up; agent/request-error + compaction/
+summary-error handlers offload all retained images and retry when an upstream
+rejects image input; goal_set/goal_clear give the lead goal self-service
+without the stock direct-human gate), `probe-inject-guard.mjs` (4 tools +
+followup/goal flows), `vendor/dsh-tui/src/components/SubagentDashboard.tsx` +
+`src/components/sidePanel/builtinPanels.tsx` + `src/i18n.ts` (Agents-tab `x`
+bulk-folds settled rows NOW — idle teammates previously waited for the whole
+task board to complete; footer shows the foldable count). Constellation —
+`src/browser/tools.ts` collapseImgRuns: runs of identical bare `- img`
+snapshot rows collapse to `- img ×N` (the Bugcrowd page carried 228-row runs,
+~22k transcript lines across 96 snapshots in a 12.3 MB export).
+
 DPAPI assembly-load fix (2026-10-30, lead field report post-run-11):
 Constellation `16f1dfb` — `src/browser/cookies.ts` prepends
 `Add-Type -AssemblyName System.Security;` to the DPAPI helper (stock
