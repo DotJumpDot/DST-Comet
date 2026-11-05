@@ -4,6 +4,24 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+MCP-surface round (2026-11-05, advice
+`Advice/2026-11-05-mcp-surface-harness-and-constellation-upgrades.md` — ALL
+items A1–A6 + H1–H3 landed): Constellation — `src/tools/dupcheck.ts` (KEV
+from NVD `cisaExploitAdd` + Circl sightings/bundles/affected enrichment,
+bounded + degrade-never-fail, `kev_deep`), NEW `src/tools/mcp.ts`
+(`mcp_tools`/`mcp_diff`/`mcp_auth_gate`: Streamable HTTP JSON+SSE, session-id
+managed, snapshots on disk with descriptions NEVER in the transcript, rug-pull
+diff, auth matrix capped 12 requests @ 1 req/s), `src/tools/http.ts`
+(`save_body` forces the full-body disk write at any size), `src/tools/evidence.ts`
+(`evidence_file` chains any on-disk artifact), `src/tools/cell.ts` (`shape`
+tag + `cell_status {shape}` cross-engagement filter), `src/server.ts`
+(registration + agent instructions), `scripts/mcp-test-server.mjs` (the
+stub), `scripts/mcp-smoke.ts` (90 → 94 tools), `tests/unit.spec.ts` (83 → 94).
+Bug_Bounty — `.dsh/skills/mcp-surface-hunt/SKILL.md` (H1 routing + gate) and
+`Progress/bugcrowd/runs/LANE-TEMPLATE-mcp.md` (H2 lane page + spawn block).
+Installed profile — disabled `vulnmcp` intel-server entry (H3; enable only
+for a targeted prior-art pass).
+
 Jora post-mortem round (2026-11-05, after session 571d24fd died mid-report):
 the lead's session bricked when the opencode-go upstream stopped accepting
 images mid-run — every request 400'd "image input is not available on this
