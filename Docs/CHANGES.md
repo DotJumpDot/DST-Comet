@@ -28,6 +28,11 @@ pulls its source into the commit; staging takes the caller's paths with
 against `git status -sb` (one retry on push failure; an unverified push
 returns isError). `src/server.ts` registration + instructions,
 `scripts/mcp-smoke.ts` 94 → 97 tools, `tests/unit.spec.ts` 96 → 105.
+Follow-up (Constellation `3026edb`): GitHub secret scanning flagged the
+SYNTHETIC Google key's shape in the new evidence_scan test (alert on
+`3e58967`) — the three fake keys are now assembled at runtime from
+fragments too short to match any partner pattern, and the alert is closed
+in the UI as "Used in tests".
 
 MCP-surface round (2026-11-05, advice
 `Advice/2026-11-05-mcp-surface-harness-and-constellation-upgrades.md` — ALL
