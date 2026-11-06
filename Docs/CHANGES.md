@@ -4,6 +4,31 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+P1/P2 asks round (2026-11-07, advice
+`Advice/2026-11-06-p1p2-plan-harness-asks.md` — all four asks landed in
+Constellation): #1 `browser_network_bodies` — the session now keeps LIVE
+response handles (last 200, `src/browser/session.ts`) and the new tool
+exports method/URL/status, redacted request headers, request+response bodies
+to the owner's artifacts dir with sha256 + byte counts + a short redacted
+preview (`src/browser/tools.ts`); best-effort retroactive — a body Playwright
+already disposed is reported UNAVAILABLE with the reason, never faked.
+#2 NEW `src/tools/dns.ts` — `dns_takeover_check`: CNAME chain walk, provider
+guess from a VERSIONED fingerprint table (15 providers, can-i-take-over-xyz
+derived; Azure trafficmanager/edge read claimable:false, protected), and
+claimable TRUE/FALSE/UNKNOWN naming its signal; optional `fetch:true` GETs
+the origin page (scope guard first on every host, 1 req/s, stops on 429) —
+NO claiming, ever. #3 `evidence_scan` in `src/tools/evidence.ts` — the
+13-pattern secret scan over an owner's artifacts or a root: hits redacted to
+first4…last4 + sha256 + masked context line, placeholders counted separately,
+one chain entry per scan (values never in output OR the chain note).
+#4 `src/tools/git.ts` — `repo_commit` accepts git-mv renames (a staged
+rename whose destination is inside the given paths — directory paths count —
+pulls its source into the commit; staging takes the caller's paths with
+`add -A` since the source is already indexed) and "Pushed." is now VERIFIED
+against `git status -sb` (one retry on push failure; an unverified push
+returns isError). `src/server.ts` registration + instructions,
+`scripts/mcp-smoke.ts` 94 → 97 tools, `tests/unit.spec.ts` 96 → 105.
+
 MCP-surface round (2026-11-05, advice
 `Advice/2026-11-05-mcp-surface-harness-and-constellation-upgrades.md` — ALL
 items A1–A6 + H1–H3 landed): Constellation — `src/tools/dupcheck.ts` (KEV
