@@ -1,8 +1,45 @@
-# Modified files (vs upstream pin 2957277)
+# Modified files (vs upstream pin 224f847d / v0.19.0)
 
 House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
+
+Upstream migration round (2026-11-09, whole family: TUI 0.17.0 → 0.19.0,
+engine 0.2.1-rc.2 → 0.2.2-rc.1, same round in DST-Moon and DST-Star):
+`vendor/dsh-tui` re-merged onto upstream tag v0.19.0 by three-way keep-both
+merge (base = pin 2957277, ours = fork, theirs = v0.19.0) — 5 conflicts
+resolved keeping BOTH sides: `scripts/verify-agents-side-panel.tsx` (our
+agent-fold + task-tab sections kept, upstream's new plain-`v` check appended
+as §14), `src/channel/projection.ts` (our attached-context import + upstream's
+new `previewIndented`/`trimLocalRows` transcript helpers), `src/components/
+SubagentDashboard.tsx` (upstream's #1794 subagent channel-degradation hints
+ADDED, our pinned-footer Box props kept — the hints now render in the comet
+panel), `src/components/messages/AssistantToolUseMessage.tsx` (upstream's
+treatment-stays-while-expanded semantics adopted, our family-tone wash rides
+on top: `toolCardWash(palette, toneFamily, toolWashOf(cardToolBackground))`),
+`src/settings/definitions.ts` (combined toolBackground hint). Upstream's new
+modules landed whole: subagent-failure.ts, session-restore batch, /update,
+onboarding login, git-worktree plugin, Agent.model selection (active on
+0.2.2 engines). `patch-surface.snapshot.json` regenerated (upstream patch
+rows moved). `engine/` re-forked from harness tag `dsh-v0.2.2-rc.1`: fork
+versions `0.2.2-rc.1-comet.1`, peers/devDeps exact `0.2.2-rc.1` + cordis
+`4.1.0`, the rc.2 `sessionProjections.stateOf` registry workaround RETIRED
+(journal takes the published `teamProjectionHandle`; `Service.init` awaits
+`register()`), our wake-reason plumbing, release plugin-records, human walls
+and per-teammate routing ported on top; tool-agent-team imports
+`ReasoningEffortId` from the `dsh-llm` root (the `/brand` subpath ships
+glitched filenames in some 0.2.2 tarball extractions) and declares dsh-llm
+as a peer. `plugins/dst-comet-agent-tools`: engines.dsh widened
+(+0.2.2-rc.1), dsh-tools dep `0.2.2-rc.1` vendored. Global
+`@deepseek-ai/dsh@0.2.2-rc.1` installed (native builds re-run with
+allow-scripts; node-pty/koffi load-tested) and every banked rc.2 API fact
+re-verified on the installed host: `image/offload` event,
+`appendPluginRecord`, `contextPressure` projection (dsh-token-meter),
+`goals` (now its own dsh-goal package, same create/edit/clear shape),
+`followup`. Installed into the `dsh-tui` profile (leaf-first engine + TUI);
+profile patch-yml diff vs pre-install snapshot = ZERO (caps maxMembers 100 /
+maxTasks 1000 / maxActiveSubagents 100 and Constellation rows untouched).
+Fresh `dstc` required.
 
 P1/P2 asks round (2026-11-07, advice
 `Advice/2026-11-06-p1p2-plan-harness-asks.md` — all four asks landed in

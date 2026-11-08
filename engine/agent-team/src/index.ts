@@ -109,9 +109,10 @@ export class TeamService extends Service {
     const ctx = this.ctx
     // The registration is an effect on the context's fiber: disposing the
     // plugin unregisters the unit, so the returned disposer is not tracked.
-    // (DST-Comet: published registry API — sync register + stateOf(session, key).)
-    ctx.sessionProjections.register(teamProjectionDefinition)
-    this.journal = new TeamJournal(ctx, (root, reason) => { this.activity.notify(TeamId(root.id), reason) })
+    // (DST-Comet: the 0.2.2 published API returns the projection handle the
+    // journal reads state through — the rc.2-era registry workaround is gone.)
+    const teamProjectionHandle = await ctx.sessionProjections.register(teamProjectionDefinition)
+    this.journal = new TeamJournal(ctx, teamProjectionHandle, (root, reason) => { this.activity.notify(TeamId(root.id), reason) })
     this.roster = new TeamRoster(ctx, this.journal, this.lifecycle, this.config.maxMembers)
     this.tasks = new TeamTaskBoard(this.journal, this.config.maxTasks)
     ctx.effect(() => () => this.disposeRuntime(), 'agentTeams.runtimeLifecycle()')

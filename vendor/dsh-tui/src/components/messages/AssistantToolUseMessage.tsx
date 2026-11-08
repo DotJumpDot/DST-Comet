@@ -15,7 +15,8 @@ import { getLang, t, tOr, type I18nKey } from '../../i18n.js'
 import type { ToolBackground } from '../../tuiDisplayPrefs.js'
 import { getTheme, type Theme } from '../../theme.js'
 import type { ClickEvent } from '../../ink/events/click-event.js'
-import { revealLinesOf, snapReveal } from '../smoothReveal.js'
+import { revealLinesOf, scopeRevealKey, snapReveal } from '../smoothReveal.js'
+import { useRevealScope } from '../revealScope.js'
 import { useRevealVersion } from '../../hooks/useRevealVersion.js'
 import { primaryComboString } from '../../utils/keymap.js'
 import { agentMessageStateColor, agentMessageStateText } from './TranscriptLeaves.js'
@@ -32,7 +33,8 @@ type Props = {
   verbose: boolean
   /** Message-selection mode highlight. */
   isSelected?: boolean
-  /** Row expanded on its own (persistent hover-grey background). */
+  /** Row expanded on its own (click / Enter); the card keeps the background
+   *  configured for tool cards. */
   isExpanded?: boolean
   /**
    * Mouse click (fullscreen): toggles the row's expansion — same action as
@@ -799,6 +801,8 @@ export function AssistantToolUseMessage({
   // forces a SyncLane render per tick, and repeated sync commits ending with
   // streaming work pending feed React's nested-update counter (error #185).
   useRevealVersion(revealVersion === undefined)
+  // Per-root keyspace: a recompose can render this card under a new root.
+  const revealScope = useRevealScope()
   const isRunning = tool.status === 'running'
   const isError = tool.status === 'error'
   const sendMessage = sendMessageCardOf(tool)
@@ -1011,7 +1015,7 @@ export function AssistantToolUseMessage({
   // paint complete. `snapReveal` on every non-revealable render retires a
   // cursor the moment its card stops qualifying (result arrived, user
   // expanded) — idempotent, safe during render.
-  const revealKey = `tool:${tool.callId}`
+  const revealKey = scopeRevealKey(revealScope, `tool:${tool.callId}`)
   const revealable = smoothReveal && !isError && isRunning && view !== undefined &&
     tool.resultView === undefined && !verbose && !isExpanded && fresh
   if (!revealable) snapReveal(revealKey)
@@ -1033,13 +1037,20 @@ export function AssistantToolUseMessage({
   const shownLines: BodyLine[] = liveLines.length === 0 || revealedLines.length < rendered.length
     ? revealedLines
     : [...lines, ...liveLines, ...rendered.slice(lines.length)]
-  // Nested split-diff context panes must also yield to interaction highlights.
-  // `none` leaves them transparent so the selected/expanded root shows through.
-  const ordinaryToolBackground = isSelected || isExpanded ? 'none' : toolBackground
+  // The configured treatment is the ordinary card's own face, so it stays on
+  // while the row is expanded — growing the body must not make the card lose
+  // the surface the user chose. Selection is the exception: it owns the row.
+  const cardToolBackground = isSelected ? 'none' : toolBackground
   // DST Comet: the wash is the family tone blended into the theme's own card
   // surface — Read/Grep/Pwsh/MCP each get a distinct, quiet tint instead of
-  // one uniform blue-grey.
-  const ordinaryBackground = toolCardWash(palette, toneFamily, toolWashOf(ordinaryToolBackground))
+  // one uniform blue-grey; the subtle/strong faces wash through the same
+  // family tone so upstream's expanded-row persistence reads in the comet
+  // palette.
+  const ordinaryBackground = toolCardWash(palette, toneFamily, toolWashOf(cardToolBackground))
+  // Nested split-diff context panes must also yield to interaction highlights:
+  // `none` leaves them transparent so the selected/expanded root shows through
+  // instead of stacking a second fill on top of it.
+  const ordinaryToolBackground = isSelected || isExpanded ? 'none' : toolBackground
   // Hover affordance for the click-to-toggle row: the card's family face
   // brightens while the pointer dwells (the toolBackground treatment steps up
   // one level to the strong card face), the collapsed fold hint

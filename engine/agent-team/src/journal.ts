@@ -1,10 +1,11 @@
 /** Serialized Team transactions over the exact live Lead Session log. */
 
 import type { Agent } from '@deepseek-ai/dsh-agent'
+import type { ProjectionHandle } from '@deepseek-ai/dsh-session-projection'
 import type { Context } from '@deepseek-ai/cordis'
 import { appendPluginRecord } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap, SessionId } from '@deepseek-ai/dsh-session'
-import type { TeamEventType, TeamState } from './projection.ts'
+import type { TeamEventType, TeamProjectionState, TeamState } from './projection.ts'
 import type { TeamMemberReleasedData } from './types.ts'
 import type { TeamWakeReason } from './activity.ts'
 
@@ -35,15 +36,16 @@ export class TeamJournal {
   private readonly tails = new Map<SessionId, Promise<void>>()
 
   /**
-   * @param ctx - Team service context with the injected Session and
-   *   SessionProjections services (DST-Comet: state is read through the
-   *   published `stateOf(session, key)` registry — the vendored pin's
-   *   `ProjectionHandle` API predates what was shipped as 0.2.1-rc.3).
+   * @param ctx - Team service context with the injected Session service.
+   * @param teamProjectionHandle - Team state registration owned by the Team
+   *   service (the published 0.2.2 handle API — the rc.2-era registry-read
+   *   workaround is retired with this base).
    * @param onCommit - synchronous notification after the Team event flush
    *   succeeds, carrying what the commit changed for waiters.
    */
   constructor(
     private readonly ctx: Context,
+    private readonly teamProjectionHandle: ProjectionHandle<TeamProjectionState>,
     private readonly onCommit: (root: Agent, reason: TeamWakeReason) => void,
   ) {}
 
@@ -51,11 +53,10 @@ export class TeamJournal {
    * Read authoritative Team state for one exact live Lead.
    * @param root - exact live Team Lead.
    * @returns current projected state selected by the Lead Team id.
-   * @throws when the Team unit is not registered or its state has failed.
+   * @throws when the durable Team projection has failed.
    */
   state(root: Agent): TeamState {
-    const projection = this.ctx.sessionProjections.stateOf(root.session, 'agentTeam')
-    if (projection === undefined) throw new Error('the agentTeam projection unit is not registered')
+    const projection = this.teamProjectionHandle.stateOf(root.session)
     if (projection.failure !== undefined) throw new Error(projection.failure)
     return projection
   }

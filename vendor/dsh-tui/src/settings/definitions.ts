@@ -538,8 +538,8 @@ export const SETTING_DEFINITIONS = {
     label: 'Tool background',
     descriptions: { zh: '工具卡背景' },
     group: 'appearance',
-    hint: 'Choose whether tool-call cards add no, subtle, or strong background emphasis. None keeps the row transparent — only the tool name keeps its tone color.',
-    hintDescriptions: { zh: '选择工具调用卡片不添加、轻微或明显的背景强调。选「无」时整行透明，仅工具名保留色调。' },
+    hint: 'Choose whether tool-call cards add no, subtle, or strong background emphasis. None keeps the row transparent — only the tool name keeps its tone color; also applies when expanded.',
+    hintDescriptions: { zh: '选择工具调用卡片不添加、轻微或明显的背景强调。选「无」时整行透明，仅工具名保留色调；展开后也生效。' },
     kind: 'select',
     options: [
       { value: 'none', label: 'None (text color only)', descriptions: { zh: '无（仅文字色）' } },
