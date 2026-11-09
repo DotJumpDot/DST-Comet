@@ -4,6 +4,24 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Taskbar badge round (2026-11-10, user ask: "make the Chrome icon on the
+taskbar show a number so I know which one is whose", pair of Constellation
+`86b74a6`): every LAUNCHED owner Chrome now carries its badge number as a
+taskbar overlay icon (Constellation allocates 1..99, draws the number with
+a dependency-free PNG-in-ICO generator and applies it via a detached
+ITaskbarList3 helper — best effort, the number also rides the window's
+info tab and tool output). The engine's `human_task_create` gained
+`chrome_badge` so an ask says which window it is about: the field flows
+through the registry task → the `human-meta` footer → the wall panel,
+which now renders "Chrome [7] on the taskbar" in the expanded ask plus a
+bold `[7]` chip on the collapsed row, and the lead wake-message cites it.
+Files: `engine/tool-agent-team/src/human-tasks.ts` + `src/index.ts`
+(chrome_badge plumbing + audit line), `engine/tool-agent-team/tests/
+human-tasks.spec.ts` (badge rides task + audit), `vendor/dsh-tui/src/
+components/sidePanel/humanWall.ts` (parse `chrome_badge` from the meta
+footer), `vendor/dsh-tui/src/components/sidePanel/HumanWallPanel.tsx`
+(badge chip + which-Chrome line). Same round in DST-Moon.
+
 Lead smoke round on the migrated stack (2026-11-09, advice
 `Advice/2026-11-09-harness-smoke-dstc-0.19.0.md` — the lead measured the
 0.19.0 + 0.2.2-rc.1 build live, one bounded example.com lane, 8 requests:

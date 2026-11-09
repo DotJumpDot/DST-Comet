@@ -22,6 +22,20 @@ test('create queues a task and parks the calling agent', () => {
   assert.equal(ops.pausedTaskOf('other'), undefined)
 })
 
+test('chrome_badge rides the task and the audit line (user ask 2026-11-10)', async () => {
+  const { ops, auditPath } = rig()
+  const without = ops.create(TEAM, 'a0', 'plain', { title: 'no browser', steps: [], doneWhen: 'x' })
+  assert.equal(without.chromeBadge, undefined)
+  const task = ops.create(TEAM, 'a1', 'scout', { title: 'solve captcha', steps: [], doneWhen: 'x', chromeBadge: 7 })
+  assert.equal(task.chromeBadge, 7, 'the badge number is stored on the human task')
+  ops.resolve(task.id, 'done', 'human')
+  const lines = readFileSync(auditPath, 'utf8').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>)
+  const created = lines.find(l => l['event'] === 'human_task_created' && l['task_id'] === task.id)
+  assert.equal(created?.['chrome_badge'], 7, 'the audit line cites which Chrome the ask was about')
+  const bare = lines.find(l => l['event'] === 'human_task_created' && l['task_id'] === without.id)
+  assert.equal(bare?.['chrome_badge'], undefined, 'asks without a browser carry no badge field')
+})
+
 test('an agent cannot queue a second task while parked', () => {
   const { ops } = rig()
   ops.create(TEAM, 'a1', 'scout', { title: 'first', steps: [], doneWhen: 'x' })

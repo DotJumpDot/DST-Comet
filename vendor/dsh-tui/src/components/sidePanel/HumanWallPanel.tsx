@@ -177,6 +177,11 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
                   <Text dimColor>{`← ${item.member}`}</Text>
                 </Box>
               )}
+              {item.chromeBadge !== undefined && (
+                <Box flexShrink={0} marginLeft={1}>
+                  <Text color="accent" bold>{` [${item.chromeBadge}]`}</Text>
+                </Box>
+              )}
             </Box>
             {expanded && (
               <Box flexDirection="column" paddingLeft={4}>
@@ -194,6 +199,9 @@ export function HumanWallPanel({ focused, visible }: PanelProps): React.ReactNod
                 )}
                 {item.preserveUrl !== undefined && (
                   <Text color="accent" underline={false}>{item.preserveUrl}</Text>
+                )}
+                {item.chromeBadge !== undefined && (
+                  <Text bold>{`Chrome [${item.chromeBadge}] on the taskbar — this ask is about the Chrome whose taskbar icon shows the badge number ${item.chromeBadge}`}</Text>
                 )}
                 {item.open && (
                   <Box flexDirection="row" marginTop={0}>

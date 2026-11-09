@@ -25,6 +25,10 @@ export interface HumanWallItem {
   readonly doneWhen: string
   readonly preserveUrl?: string
   readonly preserveTab?: string
+  /** Taskbar badge number of the lane's Chrome (user ask 2026-11-10):
+   *  Constellation draws it on the Chrome taskbar icon so the human finds
+   *  the window an ask is about by looking at the taskbar. */
+  readonly chromeBadge?: number
   /** false → tracked-only ask (the Lead queued it with park:false). */
   readonly parked: boolean
   readonly open: boolean
@@ -43,6 +47,7 @@ export function parseHumanTask(task: TeamTask): HumanWallItem | undefined {
   let member: string | undefined
   let preserveUrl: string | undefined
   let preserveTab: string | undefined
+  let chromeBadge: number | undefined
   let parked = true
   for (const line of task.description.split('\n')) {
     if (line.startsWith('human-meta: ')) {
@@ -53,6 +58,7 @@ export function parseHumanTask(task: TeamTask): HumanWallItem | undefined {
         if (typeof meta.member === 'string') member = meta.member
         if (typeof meta.preserve_url === 'string') preserveUrl = meta.preserve_url
         if (typeof meta.preserve_tab === 'string') preserveTab = meta.preserve_tab
+        if (typeof meta.chrome_badge === 'number') chromeBadge = meta.chrome_badge
         if (meta.park === false) parked = false
       } catch {
         /* legacy mirror whose footer is not parseable JSON — steps still show */
@@ -77,6 +83,7 @@ export function parseHumanTask(task: TeamTask): HumanWallItem | undefined {
     doneWhen,
     ...(preserveUrl === undefined ? {} : { preserveUrl }),
     ...(preserveTab === undefined ? {} : { preserveTab }),
+    ...(chromeBadge === undefined ? {} : { chromeBadge }),
     parked,
     open: task.status !== 'completed',
   }

@@ -167,6 +167,7 @@ function humanTaskView(task: HumanTask): InferValue<typeof HUMAN_TASK_VIEW_SCHEM
     done_when: task.doneWhen,
     ...task.preserveTab === undefined ? {} : { preserve_tab: task.preserveTab },
     ...task.preserveUrl === undefined ? {} : { preserve_url: task.preserveUrl },
+    ...task.chromeBadge === undefined ? {} : { chrome_badge: task.chromeBadge },
     ...task.boardTaskId === undefined ? {} : { board_task_id: task.boardTaskId },
     created_at: task.createdAt,
     ...(task.resolvedAt === undefined
@@ -276,6 +277,7 @@ const HUMAN_TASK_VIEW_SCHEMA = {
     done_when: { type: 'string', required: true },
     preserve_tab: { type: 'string' },
     preserve_url: { type: 'string' },
+    chrome_badge: { type: 'integer', description: 'Taskbar badge number of the lane\'s Chrome (Constellation\'s browser_launch/browser_map prints it; the taskbar icon itself shows the number) — the human finds the window by this number.' },
     board_task_id: { type: 'string' },
     created_at: { type: 'string', required: true },
     resolved_at: { type: 'string' },
@@ -731,7 +733,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'human_task_create',
-      description: 'Queue a human-gated step (captcha, login, email code) and park the affected lane: that member\'s further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board. Parking defaults are role-aware (run-7): a TEAMMATE parks itself; the LEAD does NOT park itself unless it passes park:true — the coordinator must keep its tools while lanes run. Pass owner:<teammate> to queue a step for a lane.',
+      description: 'Queue a human-gated step (captcha, login, email code) and park the affected lane: that member\'s further tool calls are refused until any member resolves it. The tab and page state are untouched; a mirrored shared task keeps the queue visible on the board. Parking defaults are role-aware (run-7): a TEAMMATE parks itself; the LEAD does NOT park itself unless it passes park:true — the coordinator must keep its tools while lanes run. Pass owner:<teammate> to queue a step for a lane. When the ask involves a browser window, pass chrome_badge (the number Constellation\'s browser_launch/browser_map shows — it is drawn on the Chrome taskbar icon) so the human knows exactly which window to look at.',
       parameters: {
         title: { type: 'string', required: true, description: 'Short imperative title, e.g. "solve the Bugcrowd login captcha".' },
         steps: { type: 'array', required: true, items: { type: 'string' }, description: 'Exact click-by-click steps for the human.' },
@@ -739,6 +741,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         lane: { type: 'string', description: 'Lane or engagement name for the queue badge.' },
         preserve_tab: { type: 'string', description: 'Tab identifier the human must act in.' },
         preserve_url: { type: 'string', description: 'URL the human must act on.' },
+        chrome_badge: { type: 'integer', description: 'Taskbar badge number of the lane\'s Chrome (Constellation browser_launch/browser_map prints it) — rendered on the human wall so the human finds the window by the number on its taskbar icon.' },
         park: { type: 'boolean', description: 'Override the parking default. Default: teammates park themselves; the Lead does not park itself.' },
         owner: { type: 'string', description: 'Member name whose lane this task parks — lets the Team Lead queue a step for a teammate. Defaults to the caller.' },
         dedupe_key: { type: 'string', description: 'Idempotency key: when an OPEN task with the same key exists (within 15 minutes) it is returned as-is — the Lead and the lane raising the same wall seconds apart must not produce two asks for the human.' },
@@ -793,6 +796,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           member: parkedName,
           ...args.preserve_tab === undefined ? {} : { preserve_tab: args.preserve_tab },
           ...args.preserve_url === undefined ? {} : { preserve_url: args.preserve_url },
+          ...typeof args.chrome_badge === 'number' ? { chrome_badge: args.chrome_badge } : {},
           ...park ? {} : { park: false },
         }
         // Board mirror first so the queue is visible in the TUI task board from
@@ -826,6 +830,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           doneWhen: args.done_when,
           ...(args.preserve_tab === undefined ? {} : { preserveTab: args.preserve_tab }),
           ...(args.preserve_url === undefined ? {} : { preserveUrl: args.preserve_url }),
+          ...(typeof args.chrome_badge === 'number' ? { chromeBadge: args.chrome_badge } : {}),
           ...(typeof args.dedupe_key === 'string' && args.dedupe_key !== '' ? { dedupeKey: args.dedupe_key } : {}),
         }, { parkMemberId: park ? parkedId : null })
         ops.attachBoardTask(task.id, boardTask.id, boardRevision)
@@ -840,7 +845,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
             target: 'lead',
             content: [{
               type: 'text',
-              text: `human wall: ${args.title} (task ${task.id}, lane ${args.lane ?? membership.name}) — my tool calls are parked until it is resolved; the queue is in human_task_list / the Agents panel (task section, Doing tab).`,
+              text: `human wall: ${args.title} (task ${task.id}, lane ${args.lane ?? membership.name}${typeof args.chrome_badge === 'number' ? `, Chrome ${args.chrome_badge} on the taskbar` : ''}) — my tool calls are parked until it is resolved; the queue is in human_task_list / the Agents panel (task section, Doing tab).`,
             }],
             signal: exec.signal,
           })

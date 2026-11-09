@@ -42,6 +42,11 @@ export interface HumanTask {
   readonly memberId: string
   readonly preserveTab?: string
   readonly preserveUrl?: string
+  /** Taskbar badge number of this lane's Chrome (Constellation allocates one
+   *  per launched owner window and draws it on the taskbar icon — user ask
+   *  2026-11-10): the human identifies the window an ask is about by the
+   *  number ON THE TASKBAR, and the human wall renders it. */
+  readonly chromeBadge?: number
   readonly createdAt: string
   /** Idempotency key (run-7 P1-5): the Lead and the lane both raised the same
    *  wall 19 s apart and the human saw two near-identical asks. */
@@ -74,6 +79,8 @@ export interface HumanTaskInput {
   readonly doneWhen: string
   readonly preserveTab?: string
   readonly preserveUrl?: string
+  /** Taskbar badge number of the lane's Chrome (see HumanTask.chromeBadge). */
+  readonly chromeBadge?: number
   /** Idempotency key: one open task per key within the dedupe window. */
   readonly dedupeKey?: string
 }
@@ -203,6 +210,7 @@ export class TeamOps {
       memberId,
       ...(input.preserveTab === undefined ? {} : { preserveTab: input.preserveTab }),
       ...(input.preserveUrl === undefined ? {} : { preserveUrl: input.preserveUrl }),
+      ...(input.chromeBadge === undefined ? {} : { chromeBadge: input.chromeBadge }),
       ...(input.dedupeKey === undefined || input.dedupeKey === '' ? {} : { dedupeKey: input.dedupeKey }),
       createdAt: new Date().toISOString(),
     }
@@ -215,6 +223,7 @@ export class TeamOps {
       lane: task.lane,
       member: memberName,
       title: task.title,
+      ...(task.chromeBadge === undefined ? {} : { chrome_badge: task.chromeBadge }),
       ...(task.dedupeKey === undefined ? {} : { dedupe_key: task.dedupeKey }),
     })
     return task
