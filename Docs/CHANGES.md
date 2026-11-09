@@ -4,6 +4,20 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Lead smoke round on the migrated stack (2026-11-09, advice
+`Advice/2026-11-09-harness-smoke-dstc-0.19.0.md` — the lead measured the
+0.19.0 + 0.2.2-rc.1 build live, one bounded example.com lane, 8 requests:
+EVERYTHING GREEN — team board/freeze/resume/release, park spec exact,
+bodies/evidence chain 308→312, fixtures/OOB, MCP-surface tools, mail,
+scope, budget — and filed two Constellation analysis-layer defects, both
+fixed in Constellation `980a028`: D1 `verdictOf` labelled a
+status-divergent pair with IDENTICAL bytes as SOFT_ALLOW while printing
+"different bytes" (sameBytes now short-circuits first →
+AUTHORIZATION_DENIAL as a status/existence oracle; SOFT_ALLOW means
+genuinely different bytes again), D2 `cell_register {remove:true}`
+demanded the full create tuple for an id-only delete (create fields now
+runtime-enforced on the create path only).
+
 Upstream migration round (2026-11-09, whole family: TUI 0.17.0 → 0.19.0,
 engine 0.2.1-rc.2 → 0.2.2-rc.1, same round in DST-Moon and DST-Star):
 `vendor/dsh-tui` re-merged onto upstream tag v0.19.0 by three-way keep-both
