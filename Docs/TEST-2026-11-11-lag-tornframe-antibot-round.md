@@ -171,6 +171,27 @@ confusing empty snapshot, and gives managed challenges ~6 s to self-clear.
       (no Constellation there — unchanged, Comet-only as always).
 - [ ] Quick typing/render sanity in a normal Moon session.
 
+## T11 — `list_subagent_models` stops refusing zai (run-38 bug)
+
+What changed: the model-listing tool gates on a session "policy" of allowed
+child routes — and no policy existed (the settings plugin never ran with one),
+so the only allowed route was the parent's, and `list_subagent_models
+{provider:"zai"}` answered "not allowed for this Session" while
+`spawn_teammate {provider:"zai", model:"glm-5.3"}` worked fine (the spawn path
+never consulted the policy). Fix: the Comet profile now inserts the
+`subagent-model-selection-settings` row with the REAL route list
+(opencode-go/deepseek-v4.1-flash + longcat-2.5-free, zai/glm-5.3 + glm-5.3-flash).
+**Inert until the next `dstc` launch** (the policy records at session
+creation); spawn stays unrestricted either way.
+
+- [ ] Fresh `dstc`, then `list_subagent_models {provider:"zai"}` → EXPECT
+      `zai/glm-5.3` and `zai/glm-5.3-flash` listed, no refusal.
+- [ ] `list_subagent_models {}` (no args) → EXPECT both providers listed with
+      real names (fixes the old "opencode-go — opencode-go" silliness).
+- [ ] `list_subagent_models {provider:"opencode-go"}` → EXPECT
+      deepseek-v4.1-flash AND longcat-2.5-free.
+- [ ] `spawn_teammate {provider:"zai", model:"glm-5.3"}` still works as before.
+
 ---
 
 ## Known NOT-new (do not report as regressions)
