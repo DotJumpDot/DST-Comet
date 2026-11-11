@@ -72,6 +72,29 @@ Node side: constellation `cli.js` **3.07 GB**, dsh host 2.47 GB.
 3. Baseline (5–8 GB across 12–13 active lanes): the Lead's "close unused
    chromes" instruction is the right lever; the sweeper handles the rest.
 
+## Update 22:56 — the dstc TUI lag checked: it is memory thrash
+
+User reported the running `dstc` feels laggy. Measured live (6 s two-snapshot
+probe, read-only):
+
+- **Available RAM: 850–1008 MB of 32.5 GB. Commit charge 85.6 of 86.9 GB
+  (98% of the limit)** — the pagefile is nearly exhausted; when it fills,
+  allocations start failing (Chrome tabs crash, node OOMs).
+- **Hard faults 6.5k–12.3k pages/sec** — the box is thrashing. Page-in stalls
+  hit every process including the TUI: that IS the lag, system-wide, not a
+  TUI-render bug.
+- CPU too: dstc TUI host **329% of one core** (14 threads, WS 2.2 GB),
+  constellation node 172% (WS 2.9 GB), chrome fleet 921% — on 16 logical
+  cores, ~90% saturation at peak.
+- `mtree2a` grew **10.0 → 11.96 GB in ~40 min** and is still the hog; four
+  MORE lane chromes spawned since 22:48 (atl-inv-d, canva, quizlet, atl-inv-c).
+- Session logs: no file >15 MB — not a factor.
+
+Conclusion: kill or fix the `mtree2a` lane browser (~12 GB back) and the TUI
+should feel snappy again. If lag persists AFTER RAM is freed, that is the
+`--cpu-prof` profiling round (329% single-process burn would then be real
+TUI-side work to pin).
+
 ## Parked for the next round (needs install — waiting for green light)
 
 1. **`browser_map` RAM column** — per-owner total MB, tab count, biggest
