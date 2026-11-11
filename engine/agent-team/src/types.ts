@@ -54,6 +54,15 @@ export interface TeamMemberSnapshot {
   readonly context: 'fresh' | 'fork'
   readonly phase: TeamMemberPhase
   readonly error?: string
+  /**
+   * The LLM route REQUESTED at spawn (run-39 lead verification R2:
+   * list_agents used to show only the session model, so a requested
+   * longcat/zai route was invisible and read as silent substitution).
+   * Optional and absent on member events written before this field existed.
+   */
+  readonly agentProvider?: string
+  readonly agentModel?: string
+  readonly agentReasoningEffort?: string
 }
 
 /** Current runtime-enriched roster row. */
@@ -66,6 +75,9 @@ export interface TeamMemberView {
   readonly provider?: string
   readonly context?: 'fresh' | 'fork'
   readonly model?: string
+  /** Requested child LLM route (see TeamMemberSnapshot). */
+  readonly agentProvider?: string
+  readonly agentModel?: string
   readonly diagnostics: string[]
 }
 

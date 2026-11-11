@@ -68,6 +68,8 @@ const MEMBER_VIEW_SCHEMA = {
     provider: { type: 'string' },
     context: { type: 'string', enum: ['fresh', 'fork'] },
     model: { type: 'string' },
+    agentProvider: { type: 'string' },
+    agentModel: { type: 'string' },
     diagnostics: { type: 'array', required: true, items: { type: 'string' } },
   },
 } as const

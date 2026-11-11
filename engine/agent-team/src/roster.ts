@@ -7,6 +7,7 @@ import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { MessageId } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import { foldSubagentDescriptor } from '@deepseek-ai/dsh-subagent'
+import type { SubagentActivation } from '@deepseek-ai/dsh-subagent'
 import { errorMessage, TeamError } from './error.ts'
 import type { TeamJournal } from './journal.ts'
 import type { TeamRuntimeLifecycle } from './lifecycle.ts'
@@ -152,6 +153,8 @@ export class TeamRoster {
         provider: member.provider,
         context: member.context,
         ...model === undefined ? {} : { model },
+        ...member.agentProvider === undefined ? {} : { agentProvider: member.agentProvider },
+        ...member.agentModel === undefined ? {} : { agentModel: member.agentModel },
         diagnostics: member.error === undefined ? [] : [member.error],
       })
     }
@@ -263,6 +266,12 @@ export class TeamRoster {
       provider: requiredText(request.provider, 'provider', 200),
       context: request.context,
       phase: 'provisioning',
+      // R2 (lead verification 2026-11-12): durably record the REQUESTED child
+      // LLM route so list_agents can show it — the child's live Agent options
+      // do not carry it and the session model fallback read as substitution.
+      ...request.agentOptions?.provider === undefined ? {} : { agentProvider: request.agentOptions.provider },
+      ...request.agentOptions?.model === undefined ? {} : { agentModel: request.agentOptions.model },
+      ...request.agentOptions?.reasoningEffort === undefined ? {} : { agentReasoningEffort: request.agentOptions.reasoningEffort },
     }
 
     await this.journal.transact(root.id, async () => {
@@ -281,8 +290,9 @@ export class TeamRoster {
       await this.journal.appendAndFlush(root, 'team/member', { version: 2, teamId: TeamId(root.id), member })
     })
 
+    let started: (SubagentActivation & { readonly messageId: MessageId }) | undefined
     try {
-      const started = await this.ctx.subagents.startActivation({
+      started = await this.ctx.subagents.startActivation({
         delivery: 'parent',
         childId,
         provider: request.provider,
@@ -338,7 +348,39 @@ export class TeamRoster {
       }
       throw conflict
     }
+    // R3b (lead verification 2026-11-12): a child that dies MID-RUN (429 loop,
+    // provider error) used to end with "failed before it finished" and EMPTY
+    // member diagnostics — the cause existed only in the child session store.
+    // Observe the terminal result and journal its cause into the member's
+    // durable error, which list()/team_snapshot surface as diagnostics.
+    if (started === undefined) return { member: this.memberView(active) }
+    void started.result.then(
+      result => {
+        if (result.stopReason === 'completed') return
+        void this.recordMemberRunError(root, childId,
+          result.diagnostic ?? `child ended with stopReason "${String(result.stopReason)}"`).catch(() => undefined)
+      },
+      error => {
+        const detail = error instanceof Error ? error.message : String(error)
+        void this.recordMemberRunError(root, childId, `child run failed: ${detail}`).catch(() => undefined)
+      },
+    )
     return { member: this.memberView(active) }
+  }
+
+  /** Journal the first terminal run cause onto a live member (R3b): the
+   *  member keeps its phase (the lifecycle owns status transitions) but its
+   *  durable `error` fills the diagnostics the Lead sees. */
+  private async recordMemberRunError(root: Agent, memberId: SessionId, detail: string): Promise<void> {
+    await this.journal.transact(root.id, async () => {
+      const current = this.journal.state(root).members.find(candidate => candidate.id === memberId)
+      if (current === undefined || current.phase !== 'active' || current.error !== undefined) return
+      await this.journal.appendAndFlush(root, 'team/member', {
+        version: 2,
+        teamId: TeamId(root.id),
+        member: { ...current, error: detail.slice(0, 500) },
+      })
+    })
   }
 
   /** Perform one removal admitted before the Team runtime disposal cutoff. */
@@ -499,6 +541,8 @@ export class TeamRoster {
       provider: member.provider,
       context: member.context,
       ...live?.options.model === undefined ? {} : { model: live.options.model },
+      ...member.agentProvider === undefined ? {} : { agentProvider: member.agentProvider },
+      ...member.agentModel === undefined ? {} : { agentModel: member.agentModel },
       diagnostics: [],
     }
   }
