@@ -186,8 +186,120 @@ confusing empty snapshot, and gives managed challenges ~6 s to self-clear.
   persisted binding); D3 redirect-following scope gap; D4 page-beacon census
   mode; D5 mail_wait matcher; D6/D7 model validation + failed-name release;
   D8 goal errors; D10 png-timeout isolation.
-- Future anti-bot round: humanized trusted Turnstile clicks, solver ladder
-  (OCR sidecar → CapSolver), `Runtime.enable` side-channel patch.
+- Future anti-bot round (details in Appendix A): humanized trusted Turnstile
+  clicks, solver ladder (OCR sidecar → CapSolver), `Runtime.enable`
+  side-channel patch.
+
+---
+
+## Appendix A — Anti-bot research findings (2026-11-11)
+
+Everything the round's research surfaced, kept here so the next round (or the
+lead) can pick up without re-reading eight repos. Sources: the user's 8
+GitHub repos + the user's own passing projects `C:\Code\Maki_Project\Maki_Live`
+and `C:\Code\StarCodex` (both already beat TikTok/Akamai and Cloudflare-class
+WAFs in production).
+
+### A.1 The two stacks that already pass (the user's own projects)
+
+**Maki_Live (TikTok/Akamai)** — a local "sign server" sidecar:
+- Real **headed** Chrome (headless is detected by the Akamai edge) driven by
+  puppeteer-extra + stealth plugin, using the user's installed Chrome binary,
+  parked off-screen (`--window-position=-32000,-32000`, then SW_HIDE).
+- `ignoreDefaultArgs: ["--enable-automation"]` + `--disable-blink-features=
+  AutomationControlled` kills the webdriver source.
+- **Persisted warm profile** (.chrome-profile, real cookies accumulate) with
+  the operator's real session cookies injected.
+- All blocked work is done **from inside the page** (same-origin in-page
+  fetch, real navigations) — the WAF "cannot distinguish this from the page
+  asking for its own data."
+- No solver at all: stub detection (<5 KB body = WAF stub, fail never parse),
+  interstitial auto-click "Something went wrong → Refresh", and **session
+  rotation** — flagged sessions heal by rebuilding the browser session;
+  keep-warm rotates every 30 min preemptively.
+
+**StarCodex (Cloudflare ladder, Android)** — three-tier transport
+(dio → Cronet → WebView) but the portable lessons are:
+- **cf_clearance is bound to the TLS fingerprint + UA + IP that solved it** —
+  naive cookie-copying into a different client bounces. Solve once in a real
+  engine, keep the traffic inside that same engine (or an identical-
+  fingerprint one).
+- Challenge-signature detection: 403/429/503 + `server: cloudflare` + body
+  markers (`just a moment`, `cf-chl`, `challenge-platform`, `checking your
+  browser`) → escalate transport.
+- Managed challenges **self-clear in a clean real WebView within seconds** —
+  poll `document.title` every ~600 ms with double-confirm instead of
+  interacting. Interactive Turnstile → human once, in a VISIBLE view.
+- Persistent profile + storage/cache ON (Cloudflare's own mobile docs: 
+  challenges fail on restrictive/cleared storage).
+
+→ Shipped in this round from these two: plain-Chrome route (`browser_launch_plain`),
+warm profiles, challenge detection + managed-clear polling + advice, no-focus
+launch, graceful close.
+
+### A.2 The 8 GitHub repos — status and verdict
+
+| Repo | Status | Portable takeaway |
+|---|---|---|
+| feder-cr/invisible_playwright | 🔥 very active | The anti-bot manual (A.3) — driver-side detection, click trust, docs alone worth reading |
+| jo-inc/camofox-browser | active | Stealth browser MCP (architecture sibling): human-login-once via VNC → export storage state → reuse headlessly; rotate-on-block; per-user persisted profiles |
+| VeNoMouS/cloudscraper | alive (2025) | Clearance bound to exact UA+IP; solver-provider abstraction (2captcha/CapSolver/…); rotate strategies with `ban_time` cooldown (default 300 s) |
+| Anorov/cloudflare-scrape | dead (2023) | IUAM-era; survives: solve-once-in-real-browser → export (clearance, UA, IP) as a bound bundle for cheaper clients |
+| Eltion/Kissanime-Auto-Complete | dead (2018) | Survives: finite captcha pools — sampled-substring hash of the image + precomputed answer table, and **reload-and-retry** when the draw is unknown |
+| Kagami/chaptcha | historical | Survives: local OCR **sidecar** (HTTP/ONNX) consumed by the browser layer; pipeline = denoise → Hough line removal → segment → classify |
+| GomesAdhikari/OCR-chaptcha-solver | dormant | Concept: small CRNN/CTC model cracks a fixed-template text captcha with ~1k labeled samples |
+| shaik1729/jntua_rtoe | dormant | Concept: delegate hard captchas to a paid solver API from inside the automation loop |
+
+### A.3 The diagnosis (why we pass fingerprinting but lose challenges)
+
+From invisible_playwright's docs — matches our measured situation exactly:
+
+1. **CDP side-channels (the big one):** Playwright-over-CDP calls
+   `Runtime.enable` to track execution contexts; a page can provoke and time
+   the context-creation machinery. The community fix (rebrowser-patches /
+   Patchright): don't call `Runtime.enable` automatically — create isolated
+   worlds by hand (`Page.createIsolatedWorld`), evaluate via
+   `Page.addScriptToEvaluateOnNewDocument` + bindings. Also: never touch
+   `Debugger.*` on page realms (attaching disables JIT → timing distribution
+   is page-measurable), and `e.stack` leaks `debugger eval code` frames.
+2. **Turnstile's interactive tier "stopped checking the browser and started
+   checking for a click":** a scripted click is never trusted. It must ride
+   the real input pipeline (CDP `Input.dispatchMouseEvent*` → `isTrusted`
+   true) with **humanized motion**: Bezier-arc path, variable inter-event
+   delay, dwell before press, small overshoot-and-correct. Constellation's
+   `browser_force_action` already dispatches trusted CDP input — it just
+   moves robotically. **Cheapest high-leverage upgrade in this whole
+   appendix.**
+3. **Rhythm is a signal:** an agent's think-act loop pauses with LLM-latency
+   regularity "no human produces" — randomize inter-action delays globally,
+   not just per gesture.
+4. **Consistency beats perfection:** "a value being wrong matters less than
+   two values disagreeing." Keep one stable persona per profile; locale/
+   timezone/geo must match the egress IP; and 40% of one famous site's
+   blocks traced to just 5 JA3 TLS fingerprints — real Chrome has a perfect
+   JA3, so never put a TLS-terminating proxy in front of it.
+5. **Spoofing ladder:** page-level shims (detectable) < driver-level
+   (Patchright/rebrowser) < engine-level (Camoufox/invisible). We are at
+   "real Chrome + driver" — the remaining gap is exactly items 1-2.
+
+### A.4 Next-round roadmap (ranked)
+
+1. **Humanized trusted clicks** — upgrade `browser_force_action` with
+   Bezier-arc mouse paths, jittered delays, dwell + overshoot. Small,
+   self-contained, attacks Turnstile directly.
+2. **Runtime.enable avoidance** — evaluate rebrowser-patches as a
+   playwright-core patch or Patchright as a drop-in for the plain-launch
+   path. Bigger project; removes the driver side-channel.
+3. **Rotate-on-block** — when a lane hits an uncleaable challenge, auto-
+   suggest a FRESH profile (and bench the burned one ~5 min) instead of
+   grinding the same identity.
+4. **Human-once handoff, formalized** (camofox pattern) — challenge in the
+   visible window → human clicks once → warm profile keeps the clearance for
+   the rest of the engagement (mostly exists via walls + warm profiles;
+   formalize the export/reuse).
+5. **Solver ladder for image captchas** — only if we hit them often:
+   hash-DB reload-retry → local ONNX OCR sidecar → CapSolver/2captcha API
+   (needs the human's API key + budget).
 
 ## Rollback (if something is badly wrong)
 
