@@ -123,3 +123,46 @@ test('a release record for another team leaves the roster untouched', () => {
   assert.equal(state.failure, undefined)
   assert.deepEqual(state.members.map(member => member.name), ['scout'])
 })
+
+test('R6 round-trip: a routed member event (agentProvider/agentModel) survives the strict persistence schema', () => {
+  // The R6 regression this guards: teamMemberSnapshotSchema is .strict() — the
+  // round-2 writer emitted agentProvider/agentModel/agentReasoningEffort, the
+  // schema refused them, and the single bad event poisoned the whole Team
+  // domain on replay ("persisted Agent Teams team/member payload is invalid").
+  const session = Session.create(rootId)
+  session.append('team/member', {
+    version: 2,
+    teamId,
+    member: {
+      id: SessionId('lc-38a'),
+      name: 'lc-38a',
+      description: 'longcat lane',
+      provider: 'spawn',
+      context: 'fresh',
+      phase: 'provisioning',
+      agentProvider: 'opencode-go',
+      agentModel: 'longcat-2.5-free',
+      agentReasoningEffort: 'high',
+    },
+  })
+  session.append('team/member', {
+    version: 2,
+    teamId,
+    member: {
+      id: SessionId('lc-38a'),
+      name: 'lc-38a',
+      description: 'longcat lane',
+      provider: 'spawn',
+      context: 'fresh',
+      phase: 'active',
+      agentProvider: 'opencode-go',
+      agentModel: 'longcat-2.5-free',
+    },
+  })
+  const state = fold(session.snapshotEvents())
+  assert.equal(state.failure, undefined, 'a routed member event must replay cleanly')
+  assert.equal(state.members.length, 1)
+  assert.equal(state.members[0]?.name, 'lc-38a')
+  assert.equal(state.members[0]?.agentProvider, 'opencode-go')
+  assert.equal(state.members[0]?.agentModel, 'longcat-2.5-free')
+})

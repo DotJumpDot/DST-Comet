@@ -74,6 +74,12 @@ const teamMemberSnapshotSchema = z.object({
   context: z.enum(['fresh', 'fork']),
   phase: z.enum(['provisioning', 'active', 'failed']),
   error: z.string().optional(),
+  // R2 requested child LLM route (run-39 lead verification; R6: the .strict()
+  // persistence schema must accept what the writer emits — a routed spawn
+  // otherwise poisons the whole Team domain on replay).
+  agentProvider: z.string().optional(),
+  agentModel: z.string().optional(),
+  agentReasoningEffort: z.string().optional(),
 }).strict() as z.ZodType<TeamMemberSnapshot>
 
 const teamTaskSnapshotSchema = z.object({
