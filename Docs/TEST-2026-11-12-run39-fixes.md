@@ -102,6 +102,57 @@ resolve); the live check needs this fresh dstc:
 - [ ] `list_subagent_models {provider:"opencode-go"}` → EXPECT deepseek +
       longcat both listed.
 
+## P2 follow-up round (Constellation `4b1b650`, same day)
+
+## F12 — `dns_takeover_check {fetch:true}` honest errors
+
+- [ ] On hosts where the fetch leg cannot connect, the line now says
+      `HTTP leg: ERROR (https: …; http: …)` and the verdict is
+      **UNKNOWN — transport failed, which is NOT evidence** (was: a false
+      "no HTTP listener" folded into the verdict). If it still misreports
+      against a host where http_request works, the error TEXT is now in the
+      output — send me that line.
+
+## F13 — `http_request` honors a caller `Host` header
+
+- [ ] `http_request {url:"https://target/…", headers:{Host:"other.example"}}`
+      → the override now REACHES the wire (hop 0 rides node:http; verified by
+      unit test against a live local server). Redirect hops never inherit it.
+
+## F14 — `browser_headers_set / list / clear` (new tools)
+
+- [ ] Set `{"X-Forwarded-Host":"x"}` via browser_headers_set → list shows it →
+      clear empties it → browser_reset also clears. Map line shows `+1 hdr`
+      while set. Lanes should use THESE instead of raw CDP so headers can't
+      silently ride later control legs.
+
+## F15 — request counter on the map
+
+- [ ] `browser_map {}` compact line now includes `reqs N` per owner — the
+      per-lane budget signal (read it before each card instead of nothing
+      counting for you).
+
+## F16 — secrets reveals are audited
+
+- [ ] `secrets_get {name:…, reveal:true, owner:"<lane>"}` → the reveal lands
+      in scope-audit.jsonl with your owner name. (Per-lane read BLOCKING is
+      not enforceable — one shared server, self-declared owners — the audit
+      trail is the detective control.)
+
+## Still parked (need YOUR decision — dsh engine, off-limits to me)
+
+- Teammate `diagnostics` population (silent "Background subagent failed") and
+  longcat route validation — both live in the dsh engine.
+- Captcha wall wording: human_task_* are native engine tools too. Until then,
+  the Lead's spawn prompts should carry the §11.3 rules verbatim: when the
+  AGENT submits — "tick the box ONLY; do NOT press Create/Enter; do not mark
+  complete until the dashboards exist" + `park:false`; when the human submits —
+  say so explicitly + reload the tab after any failed submit (widget can be
+  dead) + a reCAPTCHA v2 token dies in ~120 s (submit immediately or re-tick).
+- Fixture registry: keep ONE versioned `Fixtures/REGISTRY.md` in Bug_Bounty
+  and have every spawn prompt reference it (fixture facts from memory cost 6
+  lane-steers last run) — convention, not a tool.
+
 ## Not in this round (parked from the advice file)
 
 - P2s: `dns_takeover_check` HTTP leg, `secrets_get` per-lane scoping,
