@@ -92,15 +92,34 @@ every import. Divided to seconds inside SQLite now.
       them (live/running profiles are never touched).
 - [ ] `{include_cdp_dirs:true}` also covers the `%LOCALAPPDATA%\Constellation\cdp-*` lane dirs.
 
-## F11 — zai listing (carried from last round — needs this launch)
+## F11 — zai listing + spawn substitution (ROOT-CAUSED + realigned 2026-11-12, verify on this launch)
 
-Profile rows verified by dump (both our insert and the bundle's alias
-resolve); the live check needs this fresh dstc:
+The Lead measured the listing still refusing AND spawn_teammate silently
+substituting the session model. Root cause (one cause, both symptoms): the
+profile's engine peer set was stale 0.1.0-rc.6 — those drivers predate
+`agentOptions` support (routes dropped → children run the parent model) and
+the package has no `model-selection-settings` export (the policy row could
+never load). Both profiles now carry the 0.2.2-rc.1 engine set (dump-config
+clean). Verify on a FRESH dstc:
 
 - [ ] `list_subagent_models {provider:"zai"}` → EXPECT glm-5.3 +
       glm-5.3-flash listed, no "not allowed for this Session".
 - [ ] `list_subagent_models {provider:"opencode-go"}` → EXPECT deepseek +
       longcat both listed.
+- [ ] `spawn_teammate {provider:"opencode-go", model:"longcat-2.5-free", …}` →
+      then `list_agents` → EXPECT the member's model to STAY longcat (was:
+      silently deepseek). 3-call smoke: spawn → one file write → one message.
+- [ ] `spawn_teammate {provider:"zai", model:"glm-5.3"}` consultant → EXPECT
+      it actually runs glm-5.3; if provisioning fails, diagnostics should now
+      carry the child error (not empty).
+
+## V-round additions from the Lead's live verification (Constellation 67b53bc)
+
+- [ ] V1: a LAUNCHED or PLAIN lane whose page JS fetches an out-of-scope URL
+      now shows the violation in `browser_scope_violations` and the map ⚠ line
+      (was: silently clean — the observer only wired on attach).
+- [ ] V5: `browser_kill` / `browser_reset` on an owner clears that owner's
+      stale per-owner scope rule (the 345-rule accumulation is capped now).
 
 ## P2 follow-up round (Constellation `4b1b650`, same day)
 
