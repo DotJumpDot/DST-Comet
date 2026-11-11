@@ -155,3 +155,24 @@ export function cleanStatusFieldText(value: unknown, maxCells: number): string {
  *  and single-line transcript notices are render-path data too: same
  *  sanitization, toast-width cap. */
 export const NOTICE_CELLS = 200
+
+/** Any C0/C1 control byte (a tab included). Fast-path test for
+ *  {@link stripTerminalControls}. */
+// eslint-disable-next-line no-control-regex -- deliberate: sanitize untrusted render-path text
+const CONTROL_BYTE = /[\u0000-\u001f\u007f-\u009f]/u
+
+/**
+ * Hot-path wrapper over {@link flattenPasteInline} for streamed tool/lane/job
+ * output and result previews (2026-11-11 torn-frame round): live output tails
+ * deliberately keep raw \r and escape bytes (live-output.ts: "the text stays
+ * raw… sanitizing is the renderer's job"), but no render seam stripped them —
+ * a lone \r or escape printed through a <Text> moves the physical cursor
+ * while Ink's row model stays put, and every later frame paints at stale
+ * positions: the interleaved ghost frames the human had to drag-select or
+ * resize the terminal to clear. A line with no ESC and no control byte
+ * returns unchanged (zero allocation on the per-chunk path).
+ */
+export function stripTerminalControls(value: string): string {
+  if (!value.includes('\u001b') && !CONTROL_BYTE.test(value)) return value
+  return flattenPasteInline(value)
+}

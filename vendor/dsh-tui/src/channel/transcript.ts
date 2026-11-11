@@ -1,6 +1,8 @@
 /** Backend-neutral transcript limits and text helpers shared by the projector,
  *  the fold pass and the local-output paths. */
 
+import { stripTerminalControls } from './sanitize.js'
+
 export const ARGS_PREVIEW_LIMIT = 160
 
 export const RESULT_PREVIEW_LIMIT = 240
@@ -19,7 +21,11 @@ export const LOCAL_OUTPUT_LIMIT = 240
 export const MAX_ROWS = 600
 
 export function preview(text: string, limit: number): string {
-  const flat = text.replace(/\s+/g, ' ').trim()
+  // Torn-frame round 2026-11-11: the whitespace fold below already removes
+  // \r/newlines, but a COMPLETE escape sequence survives it and would ride a
+  // tool-result preview into a transcript row. Strip it at the preview
+  // boundary; clean text takes the zero-allocation fast path.
+  const flat = stripTerminalControls(text).replace(/\s+/g, ' ').trim()
   return flat.length <= limit ? flat : `${flat.slice(0, limit)}…`
 }
 
@@ -28,7 +34,7 @@ export function preview(text: string, limit: number): string {
  * indentation survives; a stray newline still cannot become a second row.
  */
 export function previewIndented(text: string, limit: number): string {
-  const line = text.replace(/[\r\n]+/gu, ' ').replace(/\s+$/u, '')
+  const line = stripTerminalControls(text).replace(/[\r\n]+/gu, ' ').replace(/\s+$/u, '')
   // A truly empty Text node measures as zero height; one no-break space keeps
   // the blank row the report asked for without painting anything.
   if (line === '') return '\u00a0'

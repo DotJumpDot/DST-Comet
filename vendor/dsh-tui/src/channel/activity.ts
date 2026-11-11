@@ -38,6 +38,7 @@ import type { AgentEvent, AgentEventOf, SubagentUsage, TaskStatus } from '../age
 import { foldAgentMessage } from '../agent/messages.js'
 import { t } from '../i18n.js'
 import { formatJobDuration } from './job-format.js'
+import { stripTerminalControls } from './sanitize.js'
 import { preview } from './transcript.js'
 
 const MAX_OUTPUT_EVENTS = 160
@@ -259,6 +260,10 @@ export function createActivityProjection(getState: () => ActivityState, deps: Ac
 
   const pushLine = (entry: SubagentEntry, line: SubagentOutputLine): void => {
     const state = entry.state
+    // Torn-frame round 2026-11-11: strip control bytes at the store boundary
+    // (every lane/job output line passes here), so no render seam can leak a
+    // raw \r or escape into the pty. Clean lines return unchanged.
+    line.text = stripTerminalControls(line.text)
     if (line.text.length > MAX_OUTPUT_LINE_CHARS) line.text = capLine(line.text)
     state.outputEvents.push(line)
     if (state.outputEvents.length > MAX_OUTPUT_EVENTS) state.outputEvents.splice(0, state.outputEvents.length - MAX_OUTPUT_EVENTS)
@@ -283,7 +288,7 @@ export function createActivityProjection(getState: () => ActivityState, deps: Ac
       pushLine(entry, { kind, text: '', at: now(), settled: false })
     }
     const tail = state.outputEvents.at(-1)!
-    const parts = `${tail.text}${text}`.split('\n')
+    const parts = `${tail.text}${stripTerminalControls(text)}`.split('\n')
     // A streamed line stops growing at the cap (its cut text stays as is
     // until the line ends).
     tail.text = tail.text.length > MAX_OUTPUT_LINE_CHARS ? tail.text : capLine(parts[0]!)

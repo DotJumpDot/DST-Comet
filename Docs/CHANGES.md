@@ -4,6 +4,28 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Lag + torn-frame round (2026-11-11, user ask: "12-13 concurrent lanes is my
+normal — make it flow, no lag" + screenshots of interleaved ghost frames;
+follows the read-only lag investigation: main JS thread at avg 80% of a core
+for an 11 h run, bursty, 3.2 GB GC ceiling, zero disk I/O). Three surgical
+changes in `vendor/dsh-tui`:
+- `src/dsh-adapter/channel/subagent-projection.ts` — non-chunk lane events
+  (tool.call/result/progress, assistant.message) no longer pay a synchronous
+  dashboard snapshot + renderer wake EACH: they ride the same 16 ms frame
+  coalescing the chunk path uses (measured: dozens of full syncs/sec at 13
+  lanes). syncRows also skips the rewrite when a SETTLED lane's view is
+  unchanged (new `sameSubagentView`): churn history is ~100 static rows that
+  were re-allocated per frame while only the ~13 running lanes changed.
+- `src/channel/sanitize.ts` — new `stripTerminalControls` (ANSI/OSC sequence
+  strip + C0/C1 → space, zero-alloc fast path for clean lines).
+- `src/channel/activity.ts` + `src/channel/transcript.ts` — live output
+  tails keep `\r`/ESC raw BY DESIGN and the render seams never sanitized
+  them (live-output.ts says "sanitizing is the renderer's job"); a lone
+  control byte moved the physical cursor while Ink's row model stayed put,
+  producing the torn/interleaved frames the human had to drag-select or
+  resize to clear. Stripped at the store boundary (pushLine + the streamed
+  tail) and in result previews. Same round in DST-Moon.
+
 Taskbar badge round (2026-11-10, user ask: "make the Chrome icon on the
 taskbar show a number so I know which one is whose", pair of Constellation
 `86b74a6`): every LAUNCHED owner Chrome now carries its badge number as a

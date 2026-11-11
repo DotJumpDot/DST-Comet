@@ -223,6 +223,21 @@ export function createSubagentProjection(getState: () => ProjectionState, deps: 
   }
 }
 
+/** Whether two subagent row views carry identical visible content. Settled
+ *  rows are time-static (durationMs froze at completion), so a settled row
+ *  reaching an unchanged state is a no-op rewrite the read view can keep
+ *  as-is; running rows always differ through durationMs. */
+function sameSubagentView(a: SubagentRow | undefined, b: SubagentRow): boolean {
+  if (a === undefined) return false
+  return a.status === b.status && a.durationMs === b.durationMs
+    && a.toolCalls === b.toolCalls && a.tokens === b.tokens
+    && a.summary === b.summary && a.stopReason === b.stopReason && a.error === b.error
+    && a.description === b.description && a.model === b.model && a.effort === b.effort
+    && a.provider === b.provider && a.mode === b.mode
+    && a.outputLines.length === b.outputLines.length
+    && a.outputLines.every((line, index) => line === b.outputLines[index])
+}
+
 /** Current-session subagent store, row projection and frame-batched stream
  * bridge. The owning channel installs transport subscriptions; this module
  * only accepts scoped events and never captures a replaceable agent itself.
@@ -280,6 +295,14 @@ function createSessionSubagentProjection(
         outputLines: sub.output.slice(-3), toolCalls: sub.toolCalls, tokens: sub.tokens,
         summary: sub.summary, stopReason: sub.stopReason, error: sub.error,
       }
+      // 2026-11-11 lag round: a SETTLED row's view is time-static (durationMs
+      // froze at completion), yet every sync used to rebuild a fresh view for
+      // every carded child — with 100-entry churn history that is ~100 dead
+      // allocations + read-revision bumps per frame while only the ~13 running
+      // lanes actually changed. Skip the rewrite when the previous view is
+      // already identical (running rows always differ through durationMs).
+      const prior = row.subagent
+      if (prior !== undefined && sameSubagentView(prior, view)) continue
       row.subagent = view
       row.text = sub.description
       markChannelReadDirty(row)
@@ -347,13 +370,17 @@ function createSessionSubagentProjection(
     }
     if (event.type === 'user/message') noteChildRelay(id, event)
     store.onSessionEvent(id, event)
-    if (event.type === 'assistant/chunk') {
-      streamDirty = true
-      getState().emitStream()
-    } else {
-      syncNow()
-      getState().emit()
-    }
+    // 2026-11-11 lag round: non-chunk lane events (tool.call / tool.result /
+    // tool.progress / assistant.message) used to syncNow + emit SYNCHRONOUSLY,
+    // once per event. With the human's standard 12-13 concurrent streaming
+    // lanes that is dozens of full dashboard snapshots and renderer wakes per
+    // second on the host's main thread (measured: avg 80% of a core for an
+    // 11 h run, bursty to saturation). The durable store update above stays
+    // synchronous; the PROJECTION rides the same 16 ms frame coalescing the
+    // chunk path already uses (flushDeferred -> flush -> syncNow), so bursts
+    // collapse into one snapshot + one wake per frame.
+    streamDirty = true
+    getState().emitStream()
     return true
   }
   // 0.1.5 live stream frames for child agents: the payload carries the Agent
@@ -364,13 +391,11 @@ function createSessionSubagentProjection(
     if (id === undefined && session !== undefined && session !== null) id = backfillSessionLink(session)
     if (id === undefined) return false
     store.onStreamFrame(id, frame)
-    if (frame.type === 'chunk') {
-      streamDirty = true
-      getState().emitStream()
-    } else {
-      syncNow()
-      getState().emit()
-    }
+    // Same 16 ms coalescing as onSessionEvent above (lag round 2026-11-11):
+    // settle/attempt frames of 12-13 concurrent lanes no longer pay a full
+    // synchronous dashboard snapshot + renderer wake each.
+    streamDirty = true
+    getState().emitStream()
     return true
   }
   /** Heal a missing session→agent link through the agents registry. The
