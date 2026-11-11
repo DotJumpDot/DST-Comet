@@ -172,6 +172,50 @@ clean). Verify on a FRESH dstc:
   and have every spawn prompt reference it (fixture facts from memory cost 6
   lane-steers last run) — convention, not a tool.
 
+## Lead verification round 2 (2026-11-12) — results + fixes
+
+The Lead's live verification confirmed V1/V3/V4/V5 and the routing core (no
+substitution — child stores show zai/glm-5.3 and longcat-2.5-free actually
+running). Round-2 defects and their disposition:
+
+- **R1 (P2, documented, workaround exists)** — the model-selection policy is
+  only recorded at agent/created with `firstLiveSeq === 0`, so a `--resume`
+  session never gets it and listing still refuses there. Workaround: run the
+  listing check in a brand-new conversation (fresh sessions pass — verified).
+  The real fix is a fork-patch of the settings plugin (backfill on resume) —
+  **needs the human's decision** (it means forking one more engine package).
+- **R2 (P2, FIXED — Comet `d180cbbf49`)** — `list_agents` now reports the
+  REQUESTED child route per member: `agentProvider` / `agentModel` /
+  `agentReasoningEffort` are recorded durably at spawn and returned by
+  list_agents, team_snapshot, and the spawn result. (The live Agent options
+  don't carry the route, which is why the old fallback read as substitution.)
+- **R3 (P2, half-fixed)** — silent death: the roster now observes the child's
+  terminal result; a non-completed stopReason or a rejected run journals the
+  provider `diagnostic` (or the stopReason) into the member's durable error —
+  `list_agents`/`team_snapshot` diagnostics show the CAUSE (e.g. the 429
+  loop) instead of `[]`. Operational note stands: **longcat-2.5-free is
+  rate-limited right now — don't size a run on it until the 429s clear.**
+- **R4 (P3, FIXED)** — the shadow layer's hole is closed: the llm family
+  (`dsh-llm`, `dsh-llm-retry`, `dsh-llm-deepseek`, `dsh-llm-pi-ai`) is now
+  junctioned to the global runtime's copies in BOTH profiles (12 junctions
+  total per profile). Profile-local `@deepseek-ai` = 3 fork tarball builds +
+  client-ui + 12 junctions, nothing duplicated.
+- **R5 (P3, documented, no fix)** — resumed sessions keep the MCP tool
+  catalogue (descriptions) from before the restart; behavior and messages are
+  current, the description text is stale. Cosmetic; a fresh session shows the
+  new texts.
+
+### Round-2 checks (fresh dstc)
+
+- [ ] `spawn_teammate {provider:"opencode-go", model:"longcat-2.5-free", …}` →
+      `list_agents` → the member shows `agentProvider: opencode-go,
+      agentModel: longcat-2.5-free` (the money check, now visible).
+- [ ] A member whose child dies (e.g. longcat 429) → `list_agents` → its
+      diagnostics name the cause (rate_limit / stopReason), not `[]`.
+- [ ] Fresh conversation: `list_subagent_models {provider:"zai"}` → glm-5.3 +
+      glm-5.3-flash (R1: resumed sessions keep refusing until the backfill
+      fix is decided).
+
 ## Not in this round (parked from the advice file)
 
 - P2s: `dns_takeover_check` HTTP leg, `secrets_get` per-lane scoping,
