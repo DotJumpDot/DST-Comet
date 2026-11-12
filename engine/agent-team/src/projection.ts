@@ -304,6 +304,18 @@ function replaceAt<T>(items: readonly T[], index: number, item: T): T[] {
   return next
 }
 
+/** Fields that differ between two same-phase member snapshots, ignoring the
+ *  R3b-mutable `error`. Names the drift in the localized transition error. */
+function memberFieldsChanged(prior: TeamMemberSnapshot, member: TeamMemberSnapshot): string[] {
+  const drift: string[] = []
+  const keys = new Set([...Object.keys(prior), ...Object.keys(member)] as (keyof TeamMemberSnapshot)[])
+  for (const key of keys) {
+    if (key === 'error') continue
+    if (JSON.stringify(prior[key]) !== JSON.stringify(member[key])) drift.push(String(key))
+  }
+  return drift
+}
+
 function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEvent): TeamProjectionState {
   switch (event.type) {
     case 'team/member': {
@@ -314,17 +326,41 @@ function applyCurrentTeamEvent(state: TeamProjectionState, event: TeamSessionEve
       if (named !== undefined && named.id !== member.id) {
         throw new Error(`teammate name "${member.name}" is reused by another member`)
       }
-      if (prior === undefined) {
-        if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
-      } else {
-        if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context) {
-          throw new Error(`teammate "${member.id}" changed immutable identity fields`)
+      try {
+        if (prior === undefined) {
+          if (member.phase !== 'provisioning') throw new Error(`teammate "${member.name}" must begin provisioning`)
+        } else {
+          if (prior.name !== member.name || prior.provider !== member.provider || prior.context !== member.context) {
+            throw new Error(`teammate "${member.id}" changed immutable identity fields`)
+          }
+          if (member.phase === prior.phase && prior.phase !== 'provisioning') {
+            // Same-phase re-emit is the R3b error-attach contract: the
+            // lifecycle owns phase transitions, and recordMemberRunError
+            // journals the member again with only `error` filled. A run-41 P0
+            // made exactly this write and the blanket same-phase ban turned
+            // one dying lane into a whole-roster poison. Any other field
+            // changing under the same phase is still a writer bug.
+            const drift = memberFieldsChanged(prior, member)
+            if (drift.length > 0) {
+              throw new Error(`teammate "${member.name}" re-emitted ${prior.phase} -> ${member.phase} changing ${drift.join(', ')}`)
+            }
+          } else if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {
+            throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
+          }
         }
-        if (prior.phase !== 'provisioning' || member.phase === 'provisioning') {
-          throw new Error(`teammate "${member.name}" has an invalid ${prior.phase} -> ${member.phase} transition`)
-        }
+        return { ...state, members: replaceAt(state.members, index, member) }
+      } catch (error: unknown) {
+        // One teammate in a bad state must never poison the whole roster fold
+        // (run-41 P0: list_agents/team_snapshot/release_teammate/lane_freeze
+        // all failed on one member). Keep the broken member, failed, with the
+        // cause as its durable error — visible in diagnostics, releasable —
+        // and continue the fold.
+        const message = (error instanceof Error ? error.message : String(error)).slice(0, 500)
+        const marked: TeamMemberSnapshot = prior === undefined
+          ? { ...member, phase: 'failed', error: message }
+          : { ...prior, phase: 'failed', error: prior.error === undefined ? message : `${prior.error}; ${message}`.slice(0, 500) }
+        return { ...state, members: replaceAt(state.members, index, marked) }
       }
-      return { ...state, members: replaceAt(state.members, index, member) }
     }
     case 'team/task': {
       const task = event.data.task

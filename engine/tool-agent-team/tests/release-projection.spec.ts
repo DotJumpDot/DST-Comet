@@ -166,3 +166,56 @@ test('R6 round-trip: a routed member event (agentProvider/agentModel) survives t
   assert.equal(state.members[0]?.agentProvider, 'opencode-go')
   assert.equal(state.members[0]?.agentModel, 'longcat-2.5-free')
 })
+
+test('run-41 P0 heal: the R3b error-attach (active -> active, only error added) is legal', () => {
+  // The regression this guards: recordMemberRunError journals the member
+  // again with only `error` filled while it stays active — the fold's blanket
+  // same-phase ban turned that ONE event from a dying lane into a poison for
+  // every roster read (list_agents, team_snapshot, release_teammate,
+  // lane_freeze all failed with "invalid active -> active transition").
+  // Sessions poisoned by the old fold heal on replay once this is legal.
+  const session = Session.create(rootId)
+  session.append('team/member', memberOf('m-1', 'd-bitpanda-gate', 'provisioning'))
+  session.append('team/member', memberOf('m-1', 'd-bitpanda-gate', 'active'))
+  session.append('team/member', {
+    version: 2,
+    teamId,
+    member: { ...memberOf('m-1', 'd-bitpanda-gate', 'active').member, error: 'child run failed: 429 rate limit' },
+  })
+  const state = fold(session.snapshotEvents())
+  assert.equal(state.failure, undefined, 'the R3b error-attach must replay cleanly')
+  assert.equal(state.members.length, 1)
+  assert.equal(state.members[0]?.phase, 'active', 'the member keeps its phase — the lifecycle owns transitions')
+  assert.equal(state.members[0]?.error, 'child run failed: 429 rate limit')
+})
+
+test('run-41 P0 localization: an invalid same-phase re-emit (field drift) fails only that member', () => {
+  const session = Session.create(rootId)
+  session.append('team/member', memberOf('m-1', 'lane-a', 'provisioning'))
+  session.append('team/member', memberOf('m-1', 'lane-a', 'active'))
+  session.append('team/member', memberOf('m-2', 'lane-b', 'provisioning'))
+  session.append('team/member', memberOf('m-2', 'lane-b', 'active'))
+  // A same-phase re-emit that ALSO changes a non-error field is a writer bug:
+  // the broken member is marked failed with the cause, the roster survives.
+  session.append('team/member', {
+    version: 2,
+    teamId,
+    member: { ...memberOf('m-1', 'lane-a', 'active').member, agentModel: 'silently-swapped' },
+  })
+  const state = fold(session.snapshotEvents())
+  assert.equal(state.failure, undefined, 'one bad member must never poison the roster fold')
+  assert.equal(state.members.length, 2, 'the healthy member is still listed')
+  const broken = state.members.find(member => member.name === 'lane-a')
+  assert.equal(broken?.phase, 'failed')
+  assert.match(broken?.error ?? '', /changing agentModel/, 'the diagnostic names the drift')
+})
+
+test('run-41 P0 localization: a member whose first event is not provisioning lands as a failed ghost', () => {
+  const session = Session.create(rootId)
+  session.append('team/member', memberOf('m-1', 'lane-a', 'active'))
+  const state = fold(session.snapshotEvents())
+  assert.equal(state.failure, undefined)
+  assert.equal(state.members.length, 1, 'the ghost is visible so the Lead can release it')
+  assert.equal(state.members[0]?.phase, 'failed')
+  assert.match(state.members[0]?.error ?? '', /must begin provisioning/)
+})
