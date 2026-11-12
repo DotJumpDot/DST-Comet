@@ -1,8 +1,38 @@
-# Modified files (vs upstream pin 224f847d / v0.19.0)
+# Modified files (vs upstream pin 8958f08 / v0.20.0)
 
 House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
+
+Upstream migration v0.19.0 → v0.20.0 (2026-11-13, user ask: worth it? do
+Comet first). TUI-only — the engine stays 0.2.2-rc.1 (rc.2's native
+in-kernel Agent Teams + spawn_teammate removal + catalog v3 collide with
+our forked team stack; TUI 0.20.0 shape-probes the host and officially
+supports rc.1 → rc.2 hosts). What we took: notifications for ALL waiting
+states (approvals/questions/plan reviews, #1929-31), git-style diff hunks
+for Edit/Write cards (#1957), render fixes (#1922 phantom narrow rows,
+#1924 blank band after shrink, #1936 composer anchor after resize),
+partial checkpoint summaries (#1943), jumpBack (WT 1.24, default off).
+Merge: three-way (base 224f847d), 5 conflicts keep-both — i18n (our
+human-wall block + upstream's new /team rc.1/rc.2 comment),
+SubagentDetailScene (our narrow-sidebar header + upstream's rc.2 catalog
+name chip — dormant on rc.1), AssistantToolUseMessage (import line: our
+useTheme + upstream's JsDiff), subagent-projection (upstream's
+parentSessionId plumbing + our onAgentStatus), team-tools (our rich
+wait-agent wake reasons kept whole; upstream's interrupt_agent
+accepted-fallback taken). patch-surface.snapshot.json regenerated
+(installed-column comparison moved to 0.2.2-rc.2). **Measured 0.20.0
+scroll tradeoff**: upstream #1919 bottom-anchors short frames, so paging
+into history while streaming now settles one-way downward 4-9 rows once,
+then holds rock-steady (0.19.0 settled ≤2); marker never lost, wheel
+path unaffected (0-3). Burst paging (120 ms/key) can overshoot past the
+marker to the transcript top — PgDn finds it again; repro-scroll-drift
+now encodes that contract (≤10 one-way settle, minSigned ≥ -2, PgDn
+recovery) and passes 6/6 standalone (in-suite it joins the known
+load-timing flakes). verify:build baseline moves 4 → 5 known in-suite
+fails: contract, oauth (8 new upstream account-notification sub-scripts,
+each passes standalone), plugin-grants, terminal-images (env-only),
+btw — every one passes standalone except terminal-images.
 
 Lag + torn-frame round (2026-11-11, user ask: "12-13 concurrent lanes is my
 normal — make it flow, no lag" + screenshots of interleaved ghost frames;

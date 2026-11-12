@@ -512,6 +512,11 @@ export function SubagentDetailScene({
         <Text color={info.color} bold>{info.glyph}</Text>
         <Box flexGrow={1} flexShrink={1} overflow="hidden">
           <Text bold wrap="wrap">{`${t('subagent-card-prefix')}${subagent.description}`}</Text>
+          {/* rc.2 catalog v3 name: the addressable path (`reviewer/checker`,
+              root = `lead`); historical rows have none. */}
+          {subagent.name !== undefined && subagent.name !== '' && (
+            <Text color="accent" wrap="truncate-end">{` ${subagent.name}`}</Text>
+          )}
         </Box>
         {!narrow && (
           <>

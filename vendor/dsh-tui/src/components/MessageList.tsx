@@ -1720,6 +1720,7 @@ export function MessageList({
               kind={row.kind}
               finalSummary={row.finalSummary === true}
               text={displayText}
+              compactSummaryPreview={row.compactPreview}
               interruptBackend={row.interruptBackend}
               images={row.images}
               textFull={row.kind === 'reasoning' ? row.text : undefined}
@@ -1798,6 +1799,7 @@ export function MessageList({
 // in the virtualization window) and re-ran each row's markdown pipeline —
 // the dominant long-session jank source.
 type MemoRowProps = {
+  compactSummaryPreview?: string
   rowId: number
   kind: ChatRow['kind']
   /** DST Comet: this assistant row is rendered as its turn's final summary. */
@@ -1920,6 +1922,7 @@ function TranscriptRow({
   kind,
   finalSummary,
   text,
+  compactSummaryPreview,
   interruptBackend,
   images,
   textFull,
@@ -2289,7 +2292,7 @@ function TranscriptRow({
           ) : (
             <Text dimColor italic color={compactHovered ? 'text' : undefined}>
               <Text color={compactHovered ? 'text' : undefined}>∴</Text>
-              {' '}{t('compact-summary-folded')} · {compactPreview(displayText)}{' '}
+              {' '}{t('compact-summary-folded')} · {compactPreview(compactSummaryPreview ?? displayText)}{' '}
               {t('hint-expand-ctrl-o', { key: primaryComboString('transcript') })}
             </Text>
           )}
