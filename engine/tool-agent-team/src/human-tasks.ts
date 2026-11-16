@@ -52,9 +52,15 @@ export interface HumanTask {
    *  wall 19 s apart and the human saw two near-identical asks. */
   readonly dedupeKey?: string
   /** Shared task-board mirror task id and its last-seen revision (written
-   *  once after the board task exists, so they are mutable fields). */
+   * once after the board task exists, so they are mutable fields). */
   boardTaskId?: string
   boardRevision?: number
+  /** Run-43 §6: the human ANSWERED in chat (typed text, no resolve button)
+   * but did not resolve — record the answer so the queue reads
+   * answered-but-unresolved instead of untouched. Distinct from resolution:
+   * the parked lane stays parked until an explicit resolve. */
+  repliedAt?: string
+  replyNote?: string
   resolvedAt?: string
   outcome?: HumanTaskOutcome
   resolvedBy?: string
@@ -290,6 +296,32 @@ export class TeamOps {
     if (taskId === undefined) return undefined
     const task = this.tasks.get(taskId)
     return task !== undefined && task.resolvedAt === undefined ? task : undefined
+  }
+
+  /**
+   * Mark one OPEN task answered by the human without resolving it (run-43
+   * §6: a typed reply in the wall panel is real information — the Lead must
+   * be able to tell "answered but unresolved" from "untouched"). Re-reply
+   * overwrites with the latest note. The parked lane stays parked; only
+   * {@link resolve} releases it.
+   * @returns the marked task.
+   * @throws for unknown or already-resolved tasks.
+   */
+  markReplied(taskId: string, by: string, note?: string): HumanTask {
+    const task = this.tasks.get(taskId)
+    if (task === undefined) throw new Error(`human task ${taskId} not found`)
+    if (task.resolvedAt !== undefined) throw new Error(`human task ${taskId} was already resolved as ${task.outcome}`)
+    task.repliedAt = new Date().toISOString()
+    if (note !== undefined && note !== '') task.replyNote = note.slice(0, 500)
+    this.audit('human_task_replied', {
+      task_id: taskId,
+      team_id: task.teamId,
+      lane: task.lane,
+      member: task.memberName,
+      marked_by: by,
+      ...(task.replyNote === undefined ? {} : { note: task.replyNote }),
+    })
+    return task
   }
 
   /**

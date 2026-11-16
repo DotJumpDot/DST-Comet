@@ -53,6 +53,7 @@ const DISPLAY_KEYS: Readonly<Record<string, string>> = {
   human_task_list: 'tool-name-team-human-task',
   human_task_wait: 'tool-name-team-human-task',
   human_task_resolve: 'tool-name-team-human-task',
+  human_task_reply: 'tool-name-team-human-task',
   lane_freeze: 'tool-name-team-lane',
   lane_resume: 'tool-name-team-lane',
   team_snapshot: 'tool-name-team-snapshot',
@@ -130,6 +131,12 @@ function callTitle(name: string, args: Args): string | undefined {
       const id = str(args.task_id)
       const outcome = str(args.outcome)
       return id === undefined || outcome === undefined ? undefined : `${id} · ${outcome}`
+    }
+    // Run-43 §6: the Lead recording the human's chat answer on an open wall.
+    case 'human_task_reply': {
+      const id = str(args.task_id)
+      const note = str(args.note)
+      return id === undefined ? undefined : `${id} · ↩ ${note === undefined ? 'answered' : firstLine(note)}`
     }
     case 'lane_freeze':
     case 'lane_resume': {

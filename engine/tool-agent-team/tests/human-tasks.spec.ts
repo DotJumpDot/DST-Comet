@@ -132,3 +132,24 @@ test('run-7 P1-5: edit rewrites title/steps/doneWhen of an open wall and refuses
   assert.throws(() => ops.edit(task.id, { title: 'late' }), /already resolved/)
   assert.throws(() => ops.edit('ht-nope', { title: 'x' }), /not found/)
 })
+
+test('run-43 §6: markReplied records the answer without releasing the park; resolve still required', async () => {
+  const { ops, auditPath } = rig()
+  const task = ops.create(TEAM, 'a1', 'scout', { title: 'wait for human', steps: ['ask'], doneWhen: 'human says go' })
+  const marked = ops.markReplied(task.id, 'lead', 'wait if this run end stop 1st i will call it a day')
+  assert.equal(marked.repliedAt !== undefined, true, 'replied timestamp set')
+  assert.equal(marked.replyNote?.includes('call it a day'), true, 'the answer is recorded verbatim')
+  assert.equal(ops.pausedTaskOf('a1')?.id, task.id, 'the lane STAYS parked after a reply')
+  // Re-reply overwrites with the latest answer.
+  const again = ops.markReplied(task.id, 'lead', 'second answer')
+  assert.equal(again.replyNote, 'second answer', 'latest reply wins')
+  // Resolve after a reply still works and is the only release path.
+  const resolved = ops.resolve(task.id, 'skip', 'lead')
+  assert.equal(resolved.outcome, 'skip')
+  assert.equal(ops.pausedTaskOf('a1'), undefined)
+  assert.throws(() => ops.markReplied(task.id, 'lead', 'late'), /already resolved/)
+  const lines = readFileSync(auditPath, 'utf8').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>)
+  const replied = lines.filter(l => l['event'] === 'human_task_replied')
+  assert.equal(replied.length, 2, 'both replies audited')
+  assert.equal(replied[1]?.['note'], 'second answer', 'the audit carries the latest note')
+})

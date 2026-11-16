@@ -164,7 +164,11 @@ function humanTaskView(task: HumanTask): InferValue<typeof HUMAN_TASK_VIEW_SCHEM
     ...task.lane === undefined ? {} : { lane: task.lane },
     title: task.title,
     member: task.memberName,
-    status: task.resolvedAt === undefined ? 'waiting' : (task.outcome ?? 'skip'),
+    // Run-43 §6: 'replied' sits between waiting and resolved — the human
+    // answered in chat but nobody pressed a resolve button yet.
+    status: task.resolvedAt === undefined
+      ? (task.repliedAt === undefined ? 'waiting' : 'replied')
+      : (task.outcome ?? 'skip'),
     steps: [...task.steps],
     done_when: task.doneWhen,
     ...task.preserveTab === undefined ? {} : { preserve_tab: task.preserveTab },
@@ -172,6 +176,8 @@ function humanTaskView(task: HumanTask): InferValue<typeof HUMAN_TASK_VIEW_SCHEM
     ...task.chromeBadge === undefined ? {} : { chrome_badge: task.chromeBadge },
     ...task.boardTaskId === undefined ? {} : { board_task_id: task.boardTaskId },
     created_at: task.createdAt,
+    ...task.repliedAt === undefined ? {} : { replied_at: task.repliedAt },
+    ...task.replyNote === undefined ? {} : { reply_note: task.replyNote },
     ...(task.resolvedAt === undefined
       ? {}
       : {
@@ -274,7 +280,7 @@ const HUMAN_TASK_VIEW_SCHEMA = {
     lane: { type: 'string' },
     title: { type: 'string', required: true },
     member: { type: 'string', required: true },
-    status: { type: 'string', required: true, enum: ['waiting', 'done', 'failed', 'skip', 'delegated'] },
+    status: { type: 'string', required: true, enum: ['waiting', 'replied', 'done', 'failed', 'skip', 'delegated'] },
     steps: { type: 'array', required: true, items: { type: 'string' } },
     done_when: { type: 'string', required: true },
     preserve_tab: { type: 'string' },
@@ -282,6 +288,8 @@ const HUMAN_TASK_VIEW_SCHEMA = {
     chrome_badge: { type: 'integer', description: 'Taskbar badge number of the lane\'s Chrome (Constellation\'s browser_launch/browser_map prints it; the taskbar icon itself shows the number) — the human finds the window by this number.' },
     board_task_id: { type: 'string' },
     created_at: { type: 'string', required: true },
+    replied_at: { type: 'string', description: 'Present when the human answered in chat without resolving (run-43 §6) — the task is ANSWERED but the lane stays parked until an explicit resolve.' },
+    reply_note: { type: 'string', description: 'The human\'s answer (or a summary of it), latest wins.' },
     resolved_at: { type: 'string' },
     resolved_by: { type: 'string' },
     summary: { type: 'string' },
@@ -918,6 +926,46 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
               expectedRevision: boardTask.revision,
               action: 'edit',
               ...(task.title === undefined ? {} : { subject: `[human] ${task.title}` }),
+              description,
+            })
+            task.boardRevision = updated.revision
+            board_updated = true
+          } catch { /* mirror refresh is best-effort */ }
+        }
+        ops.audit('human_task_board_refreshed', { task_id: task.id, board_updated })
+        return { task: humanTaskView(task), board_updated }
+      },
+    })))
+
+    register(scoped.tools.register(defineTool({
+      name: 'human_task_reply',
+      description: 'Mark one OPEN human wall ANSWERED without resolving it (run-43 §6: the human typed a real answer in chat or the wall panel but pressed no resolve button — the queue used to read "waiting" so the answer and the untouched walls were indistinguishable). The task status becomes `replied` (visible in human_task_list and team snapshots), the answer is recorded as reply_note, and the parked lane STAYS parked until an explicit human_task_resolve. Typical caller: the Team Lead, right after reading the human\'s chat message that answers a wall — record the answer, then resolve (usually delegated/done) once the ruling is clear. Any member may mark.',
+      parameters: {
+        task_id: { type: 'string', required: true, description: 'Human task id from human_task_create or human_task_list.' },
+        note: { type: 'string', description: 'The human\'s answer (verbatim quote or one-line summary; latest wins, 500 chars max).' },
+      },
+      output: jsonOutput(HUMAN_UPDATE_VALUE_SCHEMA),
+      async execute(args, exec) {
+        const caller = callingAgent(exec.agent, 'human_task_reply')
+        const task = ops.markReplied(args.task_id, ctx.agentTeams.membership(caller).name, args.note)
+        // Best-effort board-mirror refresh so the TUI human wall's expanded
+        // view shows the reply line (same edit shape as human_task_update).
+        let board_updated = false
+        if (task.boardTaskId !== undefined) {
+          try {
+            const meta = {
+              id: task.id,
+              lane: task.lane ?? task.memberName,
+              member: task.memberName,
+              ...(task.preserveTab === undefined ? {} : { preserve_tab: task.preserveTab }),
+              ...(task.preserveUrl === undefined ? {} : { preserve_url: task.preserveUrl }),
+            }
+            const description = `${task.steps.map((step, at) => `${at + 1}. ${step}`).join('\n')}\n\nDone when: ${task.doneWhen}\n\n↩ REPLIED ${task.repliedAt}${task.replyNote === undefined ? '' : `: ${task.replyNote}`}\n\nhuman-meta: ${JSON.stringify(meta)}`
+            let boardTask = await ctx.agentTeams.getTask(caller, TeamTaskId(task.boardTaskId))
+            const updated = await ctx.agentTeams.updateTask(caller, {
+              taskId: TeamTaskId(task.boardTaskId),
+              expectedRevision: boardTask.revision,
+              action: 'edit',
               description,
             })
             task.boardRevision = updated.revision
