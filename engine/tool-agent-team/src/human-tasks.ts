@@ -67,6 +67,14 @@ export interface HumanTask {
   summary?: string
 }
 
+/** Cap a string to ~max Unicode code points without splitting a surrogate
+ *  pair (verification #7: note.slice(0, 500) could cut an emoji in half,
+ *  leaving a lone surrogate that renders as � in the panel and the audit). */
+function sliceCodePoints(text: string, max: number): string {
+  const points = Array.from(text)
+  return points.length <= max ? text : points.slice(0, max).join('')
+}
+
 /** One Lead-issued lane park. */
 export interface FreezeRecord {
   readonly memberName: string
@@ -312,14 +320,17 @@ export class TeamOps {
     if (task === undefined) throw new Error(`human task ${taskId} not found`)
     if (task.resolvedAt !== undefined) throw new Error(`human task ${taskId} was already resolved as ${task.outcome}`)
     task.repliedAt = new Date().toISOString()
-    if (note !== undefined && note !== '') task.replyNote = note.slice(0, 500)
+    const provided = note !== undefined && note !== '' ? sliceCodePoints(note, 500) : undefined
+    if (provided !== undefined) task.replyNote = provided
     this.audit('human_task_replied', {
       task_id: taskId,
       team_id: task.teamId,
       lane: task.lane,
       member: task.memberName,
       marked_by: by,
-      ...(task.replyNote === undefined ? {} : { note: task.replyNote }),
+      // Verification #7: only THIS call's note — a re-reply without one must
+      // not re-audit the stale replyNote as if it were fresh.
+      ...(provided === undefined ? {} : { note: provided }),
     })
     return task
   }

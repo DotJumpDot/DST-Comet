@@ -30,7 +30,11 @@ a `↩ REPLIED` line best-effort); `human_task_list` status enum gains
 `replied`. TUI: `human_task_reply` gets a compact card (DISPLAY_KEYS +
 callTitle) in team-tools.ts. The duplicate background-subagent "finished"
 notice (run-43 §5) is NOT ours to fix — the notice writer lives in the
-global dsh runtime's subagent machinery, outside the fork.
+global dsh runtime's subagent machinery, outside the fork. Verifier round
+(2026-11-18): markReplied audits only the note provided by THIS call (a
+note-less re-reply no longer re-audits the stale one), the 500-char cap
+slices by code points (no split emoji), and the human_task_reply
+description no longer claims team_snapshot surfaces `replied`.
 
 Upstream migration v0.19.0 → v0.20.0 (2026-11-13, user ask: worth it? do
 Comet first). TUI-only — the engine stays 0.2.2-rc.1 (rc.2's native

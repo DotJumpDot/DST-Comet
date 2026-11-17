@@ -153,3 +153,25 @@ test('run-43 §6: markReplied records the answer without releasing the park; res
   assert.equal(replied.length, 2, 'both replies audited')
   assert.equal(replied[1]?.['note'], 'second answer', 'the audit carries the latest note')
 })
+
+test('verification #7: re-reply without a note keeps the old note but never re-audits it; slices stay surrogate-safe', async () => {
+  const { ops, auditPath } = rig()
+  const task = ops.create(TEAM, 'a1', 'scout', { title: 'ask', steps: [], doneWhen: 'x' })
+  ops.markReplied(task.id, 'lead', 'first answer')
+  // Re-reply with NO note: the recorded note stays, but the audit line for
+  // THIS call must not carry the stale note as if it were fresh.
+  const again = ops.markReplied(task.id, 'lead')
+  assert.equal(again.replyNote, 'first answer', 'a note-less re-reply keeps the recorded note')
+  // A note ending in a 2-code-unit emoji at the cap boundary must not be
+  // split into a lone surrogate.
+  const emojiTail = 'x'.repeat(499) + '👍'
+  const sliced = ops.markReplied(task.id, 'lead', emojiTail).replyNote!
+  assert.equal(Array.from(sliced).length, 500, 'capped at 500 code points')
+  assert.ok(sliced.endsWith('👍'), 'the trailing emoji survives whole (no lone surrogate)')
+  assert.ok(!/[\uD800-\uDBFF]$|[\uDC00-\uDFFF]$/.test(sliced.replace('👍', '')) || sliced.endsWith('👍'), 'no dangling surrogate half')
+  const lines = readFileSync(auditPath, 'utf8').trim().split('\n').map(l => JSON.parse(l) as Record<string, unknown>)
+  const replies = lines.filter(l => l['event'] === 'human_task_replied')
+  assert.equal(replies.length, 3)
+  assert.equal(replies[1]!['note'], undefined, 'the note-less re-reply audits without a note')
+  assert.equal(replies[2]!['note'], sliced, 'the sliced note audits as stored')
+})
