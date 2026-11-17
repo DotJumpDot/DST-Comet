@@ -8,6 +8,7 @@ import { wrapTextLines } from '../ink/wrap-text.js'
 import stripAnsi from 'strip-ansi'
 import { truncateToWidth } from '../ink/truncateToWidth.js'
 import { formatToken, padAligned } from '../terminal-utils/markdown.js'
+import { RAIL_WIDTH } from '../ink/timeline-rail.js'
 import type { CliHighlight } from '../terminal-utils/cliHighlight.js'
 
 const SAFETY_MARGIN = 4
@@ -105,14 +106,17 @@ function renderRow(
   isHeader: boolean,
 ): string[] {
   const maxLines = Math.max(...cells.map(cell => cell.lines.length), 1)
-  const offsets = cells.map(cell => Math.floor((maxLines - cell.lines.length) / 2))
+  // Cells are TOP-ALIGNED (user ask 2026-11-18, screenshot of a 3-line
+  // status row): the old vertical centering floated a 1-line row number to
+  // the MIDDLE line of its row — reading as detached from the row's own
+  // text — and rows of different heights aligned inconsistently (2-line
+  // rows looked top-aligned, 3-line rows centered).
   const output: string[] = []
   for (let lineIndex = 0; lineIndex < maxLines; lineIndex++) {
     let line = '│'
     cells.forEach((cell, columnIndex) => {
-      const contentIndex = lineIndex - offsets[columnIndex]!
-      const content = contentIndex >= 0 && contentIndex < cell.lines.length
-        ? cell.lines[contentIndex]!
+      const content = lineIndex < cell.lines.length
+        ? cell.lines[lineIndex]!
         : ''
       const visibleWidth = stringWidth(stripAnsi(content))
       const align = isHeader ? 'center' : alignments[columnIndex]
@@ -172,7 +176,15 @@ export function MarkdownTable({ token, highlight, forceWidth }: Props): React.Re
   const minWidths = Array.from({ length: columnCount }, (_, index) => Math.max(...allColumns.map(row => row[index]!.minWidth)))
   const idealWidths = Array.from({ length: columnCount }, (_, index) => Math.max(...allColumns.map(row => row[index]!.idealWidth)))
   const borderOverhead = 1 + columnCount * 3
-  const budget = Math.max(0, terminalWidth - borderOverhead - SAFETY_MARGIN)
+  // The transcript row parks a PERMANENT 2-column gutter (timeline rail /
+  // scrollbar — the slot never appears mid-run, Qwen's rewrap rule) next to
+  // the content, INSIDE the width useTerminalSize() reports, and message
+  // rows add their own padding on top. A grid built to the reported width
+  // therefore has its right border and box corners clipped off EVERY line
+  // (2026-11-18 screenshot: the lost-list table — rectangular grid, uniform
+  // clip). Budget for the gutter explicitly; SAFETY_MARGIN keeps covering
+  // the row padding + rounding.
+  const budget = Math.max(0, terminalWidth - borderOverhead - SAFETY_MARGIN - RAIL_WIDTH)
   const allocation = allocateWidths(minWidths, idealWidths, budget)
   const wrap = (cell: Cell, width: number): WrappedCell => ({
     ...cell,

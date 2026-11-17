@@ -4,6 +4,21 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Markdown-table round (2026-11-18, user ask + screenshot: tables "look
+kinda weird" since the side panels). Vision read of the screenshot found
+the table was NOT misaligned — the real defects: (1) prebuilt grid lines
+were budgeted against the width useTerminalSize() reports, but the
+transcript row parks a permanent 2-column gutter (RAIL_WIDTH, Qwen's
+never-appear rule) INSIDE that width plus message-row padding — a
+rectangular grid built to the reported width has its right border and
+box corners clipped off EVERY line (the screenshot's missing `│`/`┐`/`┤`),
+and the last column squeezes to ~40 chars with dangling-quote wraps;
+(2) cells were vertically CENTERED — a 1-line row number floated to the
+MIDDLE line of a 3-line row (rows of different heights also aligned
+inconsistently). Fix: budget subtracts RAIL_WIDTH; cells top-aligned.
+Pinned by scripts/repro-markdown-table.tsx (ALL PASS with the fix; the
+width check FAILS on pre-fix code, widest 160 of 158).
+
 Wall-reply round (2026-11-16, run-43 §6 advice). A human who typed a real
 answer into the wall panel but pressed no resolve button left the queue
 reading `waiting` — "answered but unresolved" and "untouched" were
