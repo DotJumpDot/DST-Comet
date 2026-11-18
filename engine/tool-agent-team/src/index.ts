@@ -46,7 +46,8 @@ Prefer read/edit/write for file changes. If a file operation returns FS_STALE_VE
 
 Use the target returned by spawn_teammate or list_agents for send_message${interrupt ? ' and interrupt_agent' : ''}, or as owner when assigning or filtering shared tasks. send_message steers a running target at its nearest step boundary and starts or resumes an inactive target. inactive means no turn is executing; it does not describe task completion, success, failure, or waiting for other agents. provisioning means member creation is in progress; failed means member creation failed. A peer message starts with its sender name. A successful send does not mean the recipient has processed it. Shared-task workflow is list, get, claim with the current revision, perform the work, then complete. Task readiness never starts an owner. Before wait_agent, use list_agents and make sure another required member is running or provisioning; use send_message first when the required member is inactive. wait_agent observes only changes after that call starts, never wakes a member, and returns noProgress immediately when no other member can produce a change. Re-list after wakeup or timeout. The Lead must wait for required teammates before giving the final answer.
 
-DST-Comet additions: when only a human can advance a page (captcha, login, email code), call human_task_create with exact click-by-click steps and a done_when post-condition — the affected lane's further tool calls are then refused until any member resolves it, and human_task_wait blocks while you wait; after a resolve, re-verify done_when yourself in the preserved tab. The Team Lead can queue a step for a teammate with owner and stay running itself, and can track its own ask with park:false. The Team Lead parks a teammate between tool calls with lane_freeze / lane_resume instead of interrupting mid-call. release_teammate removes a finished or stale teammate, frees its member slot and name for a respawn — repurpose a lane with release + spawn instead of leaving dead members on the cap. team_snapshot returns the roster, per-member task load, and who waits on a human or is frozen in one call — prefer it after every wakeup. spawn_teammate accepts optional provider, model and effort so recon can run on a cheap model, validation on a strong one, and cross-provider consultants (provider+model, e.g. zai + glm-5.3) spawn as durable teammates; a route that fails provisioning surfaces the child session's underlying error in the member diagnostics. Context discipline: check context_status before long phases, and at a natural checkpoint update your state file FIRST, then call session_compact — compaction runs when your turn ends and the next turn starts condensed. A wait_agent that returns user_input or inbox_message ended early because a message reached your own inbox — read the new message before waiting again.`
+spawn_teammate accepts optional provider, model and effort so recon can run on a cheap model, validation on a strong one, and cross-provider consultants (provider+model, e.g. zai + glm-5.3) spawn as durable teammates; a route that fails provisioning surfaces the child session's underlying error in the member diagnostics. spawn_teammate also accepts task_id (the board task's subject+description are prepended to the prompt verbatim — no hand-typed copies that drift from the board) and max_requests (the canonical budget line — cap INCLUDES cleanup, reserve ~15% — is appended; the Lead enforces it with constellation budget_set). Context discipline: check context_status before long phases, and at a natural checkpoint update your state file FIRST, then call session_compact — compaction runs when your turn ends and the next turn starts condensed. A wait_agent that returns user_input or inbox_message ended early because a message reached your own inbox — read the new message before waiting again. A wait_agent with claim_only:true woke on a lane merely CLAIMING a task — usually skip the re-list.`
+
 }
 
 const ACTIVE_WAIT_STATUSES: ReadonlySet<TeamMemberView['status']> = new Set(['running', 'provisioning'])
@@ -157,6 +158,67 @@ async function waitForChangeOrInbox(
   }
 }
 
+/** Structural task-board row for the claim-only classifier (TeamTaskView is
+ *  assignable; the runtime journal's wake reason carries only
+ *  {changed:'task', target, detail: subject}, so the TRANSITION must be
+ *  recovered by diffing the board across the wait). */
+export interface TaskBoardRow {
+  id: string
+  status: string
+  ownerName?: string
+  subject: string
+  description: string
+  blockedBy: readonly string[]
+  writeScopes: readonly string[]
+}
+
+function sameStringArray(a: readonly string[], b: readonly string[]): boolean {
+  return a.length === b.length && a.every((value, index) => value === b[index])
+}
+
+/** Run-50 §8: claim-only task wakes carried no information 10+ times per run
+ *  (a lane claiming its task wakes the Lead exactly like a completion).
+ *  True when EVERY changed task differs ONLY by pending → in_progress plus
+ *  an owner appearing — no new tasks, no edits, no completions, no
+ *  deletions, and at least one actual claim. Pure; tested. */
+export function onlyClaimTransitions(before: readonly TaskBoardRow[], after: readonly TaskBoardRow[]): boolean {
+  const beforeById = new Map(before.map(task => [task.id, task] as const))
+  let claims = 0
+  for (const task of after) {
+    const prior = beforeById.get(task.id)
+    if (prior === undefined) return false // a task appeared — real information
+    const identical = prior.status === task.status
+      && prior.ownerName === task.ownerName
+      && prior.subject === task.subject
+      && prior.description === task.description
+      && sameStringArray(prior.blockedBy, task.blockedBy)
+      && sameStringArray(prior.writeScopes, task.writeScopes)
+    if (identical) continue
+    const bareClaim = prior.status === 'pending'
+      && task.status === 'in_progress'
+      && prior.ownerName === undefined
+      && task.ownerName !== undefined
+      && prior.subject === task.subject
+      && prior.description === task.description
+      && sameStringArray(prior.blockedBy, task.blockedBy)
+      && sameStringArray(prior.writeScopes, task.writeScopes)
+    if (bareClaim) { claims += 1; continue }
+    return false // any other transition is information
+  }
+  if (before.length > after.length) return false // a task left the board
+  return claims > 0
+}
+
+/** Snapshot one board for the classifier — detached copies, so a service
+ *  handing back live object references cannot mutate the "before" under us. */
+function snapshotBoard(tasks: readonly TaskBoardRow[]): TaskBoardRow[] {
+  return tasks.map(task => ({
+    ...task,
+    blockedBy: [...task.blockedBy],
+    writeScopes: [...task.writeScopes],
+  }))
+}
+
 /** Project one registry human task into its model-facing view. */
 function humanTaskView(task: HumanTask): InferValue<typeof HUMAN_TASK_VIEW_SCHEMA> {
   return {
@@ -211,6 +273,10 @@ const SPAWN_VALUE_SCHEMA = {
   additionalProperties: false,
   properties: {
     member: { ...MEMBER_VIEW_SCHEMA, required: true },
+    note: {
+      type: 'string',
+      description: 'Present when task_id/max_requests injected content into the prompt; names what was injected and the budget_set follow-up the Lead still owes.',
+    },
   },
 } as const
 
@@ -248,6 +314,7 @@ const WAIT_VALUE_SCHEMA = {
     interrupted: { type: 'boolean' },
     user_input: { type: 'boolean' },
     inbox_message: { type: 'boolean' },
+    claim_only: { type: 'boolean', description: 'Present when EVERY task change that woke the wait was a bare CLAIM (pending → in_progress + owner set; nothing completed, edited, or created) — the no-information wake of run-50 §8. Usually no re-list needed.' },
     changed: { type: 'string', enum: ['message', 'status', 'task', 'member'] },
     target: { type: 'string' },
     detail: { type: 'string' },
@@ -467,6 +534,14 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         name: { type: 'string', required: true, description: 'Unique lower-kebab-case teammate name.' },
         description: { type: 'string', required: true, description: 'Short description of the delegated responsibility.' },
         prompt: { type: 'string', required: true, description: 'Complete initial task for the teammate.' },
+        task_id: {
+          type: 'string',
+          description: 'Shared task id (team_task_list). Its subject+description are PREPENDED to the prompt verbatim — the board becomes the single source of truth instead of a hand-typed copy that drifts from it (run-50 §9).',
+        },
+        max_requests: {
+          type: 'integer',
+          description: 'Intended Constellation request budget for the lane. The canonical budget line (cap INCLUDES cleanup — reserve ~15%) is appended to the prompt, and the result reminds the Lead to enforce it with constellation budget_set {owner, max_requests} — one number instead of prompt-vs-board drift (run-50 §4/§9).',
+        },
         context: {
           type: 'string',
           enum: ['fresh', 'fork'],
@@ -489,6 +564,29 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
       async execute(args, exec) {
         const agent = callingAgent(exec.agent, 'spawn_teammate')
         const context = args.context ?? 'fresh'
+        // Run-50 §4/§9: prompt-vs-board drift made lanes follow the spawn
+        // block's hand-typed number/task while the board said another. Both
+        // injections make the SPAWN the single source of truth.
+        let promptText = args.prompt
+        const injections: string[] = []
+        let budgetReminder: string | undefined
+        if (args.task_id !== undefined) {
+          const task = ctx.agentTeams.getTask(agent, TeamTaskId(args.task_id))
+          promptText = [`TEAM TASK ${task.id} — ${task.subject}`, '', task.description, '', promptText].join('\n')
+          injections.push(`task ${task.id} injected verbatim`)
+        }
+        if (args.max_requests !== undefined) {
+          if (!Number.isSafeInteger(args.max_requests) || args.max_requests < 1)
+            throw new Error('max_requests must be a positive integer')
+          promptText += [
+            '', '',
+            `REQUEST BUDGET: at most ${args.max_requests} browser/http requests in TOTAL.`,
+            'The cap INCLUDES cleanup and restore traffic — reserve ~15% of it for cleanup; a lane that',
+            'overruns ONLY to finish cleanup is behaving correctly and must say so in its final report.',
+          ].join('\n')
+          injections.push(`budget line (<=${args.max_requests})`)
+          budgetReminder = `enforce it now with constellation budget_set {owner:"${args.name}", max_requests:${args.max_requests}}`
+        }
         const routeOptions = {
           ...args.provider === undefined ? {} : { provider: args.provider },
           ...args.model === undefined ? {} : { model: args.model },
@@ -498,13 +596,16 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
         const result = await ctx.agentTeams.spawnTeammate(agent, {
           name: args.name,
           description: args.description,
-          prompt: [{ type: 'text', text: args.prompt }],
+          prompt: [{ type: 'text', text: promptText }],
           context,
           provider: context === 'fork' ? config.forkProvider : config.freshProvider,
           ...(agentOptions === undefined ? {} : { agentOptions }),
           signal: exec.signal,
         })
-        return { member: modelMember(result.member) }
+        return {
+          member: modelMember(result.member),
+          ...(injections.length > 0 ? { note: `${injections.join('; ')}${budgetReminder === undefined ? '' : ` — ${budgetReminder}`}` } : {}),
+        }
       },
     })))
 
@@ -555,7 +656,7 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
 
     register(scoped.tools.register(defineTool({
       name: 'wait_agent',
-      description: 'Wait for the next teammate status, message, or shared-task change after this call starts. The result says WHAT woke it (changed: message|status|task|member with target and detail) so you can often skip the full re-list. This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.',
+      description: 'Wait for the next teammate status, message, or shared-task change after this call starts. The result says WHAT woke it (changed: message|status|task|member with target and detail) so you can often skip the full re-list; claim_only:true marks the no-information wake (a lane merely CLAIMED a task — nothing completed or changed). This never wakes inactive members and returns noProgress immediately when no other member is running or provisioning. Re-list after wakeup or timeout instead of polling.',
       parameters: {
         timeout_ms: {
           type: 'integer',
@@ -572,7 +673,11 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
           return await waitForChangeGracefully(ctx, caller, timeoutMs, exec.signal)
         }
         // The active-peer read and waiter registration must remain one synchronous
-        // span; awaiting between them can lose the only peer-status edge.
+        // span; awaiting between them can lose the only peer-status edge. The
+        // board snapshot for the claim-only classifier is taken in the SAME
+        // span (listTasks is synchronous) so the diff covers every event the
+        // wait can observe.
+        const beforeTasks = snapshotBoard(ctx.agentTeams.listTasks(caller) as readonly TaskBoardRow[])
         const hasActivePeer = ctx.agentTeams.listMembers(caller).some(member =>
           member.id !== caller.id && ACTIVE_WAIT_STATUSES.has(member.status))
         if (!hasActivePeer) {
@@ -584,7 +689,15 @@ To message another teammate, use send_message({ target: "<teammate name>", messa
             },
           }
         }
-        return await waitForChangeOrInbox(ctx, caller, timeoutMs, exec.signal)
+        const woke = await waitForChangeOrInbox(ctx, caller, timeoutMs, exec.signal)
+        if (woke.changed === 'task' && onlyClaimTransitions(beforeTasks, ctx.agentTeams.listTasks(caller) as readonly TaskBoardRow[])) {
+          return {
+            ...woke,
+            claim_only: true as const,
+            message: 'task change was CLAIM-ONLY (a lane took a pending task; nothing completed, edited, or appeared) — usually no action needed; re-list only if you are watching assignments.',
+          }
+        }
+        return woke
       },
     })))
 

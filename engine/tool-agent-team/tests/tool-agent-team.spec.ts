@@ -106,7 +106,10 @@ test('apply installs the full tool set including the DST-Comet additions', () =>
   }
   assert.equal(guards.length, 1, 'one pre-dispatch guard installed')
   const spawn = registered.find(row => row.name === 'spawn_teammate')!.definition
-  assert.deepEqual(Object.keys(spawn.parameters?.properties ?? {}), ['name', 'description', 'prompt', 'context', 'model', 'provider', 'effort'])
+  assert.deepEqual(
+    Object.keys(spawn.parameters?.properties ?? {}),
+    ['name', 'description', 'prompt', 'task_id', 'max_requests', 'context', 'model', 'provider', 'effort'],
+  )
 })
 
 test('spawn_teammate threads model/effort into agentOptions', async () => {
@@ -453,4 +456,95 @@ test('latestTurnFailure names the child Session route failure (run-5 §3)', asyn
   )
   assert.equal(latestTurnFailure([turnEnd({ kind: 'aborted', reason: { kind: 'user' } })] as never), undefined)
   assert.equal(latestTurnFailure([] as never), undefined)
+})
+
+// ── run-50 round: spawn task/budget injection + claim-only wait marker ─────
+
+const boardRow = (over: Record<string, unknown> = {}) => ({
+  id: 'task-1', status: 'pending', subject: 'probe', description: 'd', blockedBy: [], writeScopes: [], ...over,
+})
+
+test('onlyClaimTransitions: a bare claim is true, everything informative is false (run-50 §8)', () => {
+  const pending = [boardRow()]
+  assert.equal(mod.onlyClaimTransitions(pending, [boardRow({ status: 'in_progress', ownerName: 'lane-a' })]), true, 'pending → in_progress + owner = claim-only')
+  assert.equal(
+    mod.onlyClaimTransitions(pending, [boardRow({ status: 'in_progress', ownerName: 'lane-a', subject: 'changed' })]), false,
+    'a claim that also edits the subject carries information',
+  )
+  assert.equal(mod.onlyClaimTransitions(
+    [boardRow({ status: 'in_progress', ownerName: 'lane-a' })],
+    [boardRow({ status: 'completed', ownerName: 'lane-a' })]), false, 'a completion is information')
+  assert.equal(mod.onlyClaimTransitions(pending, [boardRow(), boardRow({ id: 'task-2' })]), false, 'a new task appeared')
+  assert.equal(mod.onlyClaimTransitions([boardRow(), boardRow({ id: 'task-2' })], [boardRow()]), false, 'a task left the board')
+  assert.equal(mod.onlyClaimTransitions(pending, [boardRow()]), false, 'no change at all is not a claim wake')
+  assert.equal(
+    mod.onlyClaimTransitions(
+      [boardRow(), boardRow({ id: 'task-2' })],
+      [boardRow({ status: 'in_progress', ownerName: 'lane-a' }), boardRow({ id: 'task-2', status: 'in_progress', ownerName: 'lane-b' })]),
+    true, 'several bare claims in one wake are still claim-only',
+  )
+})
+
+test('spawn_teammate injects the board task and the budget line (run-50 §4/§9)', async () => {
+  const { ctx, lead, registered } = fakeCtx()
+  const spawned: Array<Record<string, any>> = []
+  ctx.agentTeams.spawnTeammate = async (_caller: unknown, request: Record<string, unknown>) => {
+    spawned.push(request)
+    return { member: mateView }
+  }
+  ctx.agentTeams.getTask = (_caller: unknown, id: unknown) => ({
+    id: String(id), revision: 3, subject: 'Forge relay shape', description: 'Capture the relay envelope and diff it.',
+    status: 'pending', blockedBy: [], writeScopes: [], ready: true, writeScopeWarnings: [],
+  })
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const spawn = registered.find(row => row.name === 'spawn_teammate')!.definition
+  const result = await spawn.execute(
+    { name: 'relay-lane', description: 'relay', prompt: 'go probe', task_id: 'task-9', max_requests: 25 },
+    exec(lead),
+  )
+  const prompt = (spawned[0]!.prompt as Array<{ text: string }>)[0]!.text
+  assert.ok(prompt.startsWith('TEAM TASK task-9 — Forge relay shape\n'), 'task header prepended verbatim')
+  assert.ok(prompt.includes('Capture the relay envelope and diff it.'), 'board description injected')
+  assert.ok(prompt.indexOf('go probe') < prompt.indexOf('REQUEST BUDGET'), 'caller prompt sits between the task header and the budget tail')
+  assert.ok(prompt.includes('REQUEST BUDGET: at most 25 browser/http requests in TOTAL.'), 'budget line appended')
+  assert.ok(prompt.includes('reserve ~15%'), 'cleanup reserve guidance included')
+  assert.match(result.note, /task task-9 injected verbatim/)
+  assert.match(result.note, /budget line \(<=25\)/)
+  assert.match(result.note, /budget_set \{owner:"relay-lane", max_requests:25\}/, 'the Lead is told the enforcement step')
+  // Without the params nothing is injected and no note is added.
+  const plain = await spawn.execute({ name: 'scout', description: 'recon', prompt: 'go' }, exec(lead))
+  assert.equal((spawned[1]!.prompt as Array<{ text: string }>)[0]!.text, 'go')
+  assert.equal(plain.note, undefined)
+  // A non-positive budget is refused before spawning.
+  await assert.rejects(
+    spawn.execute({ name: 'scout', description: 'recon', prompt: 'go', max_requests: 0 }, exec(lead)),
+    /max_requests must be a positive integer/,
+  )
+})
+
+test('wait_agent marks a claim-only task wake and passes real changes through (run-50 §8)', async () => {
+  const { ctx, lead, registered, tasks } = fakeCtx()
+  mod.apply(ctx, { humanTaskAuditPath: ctx.auditPath })
+  const wait = registered.find(row => row.name === 'wait_agent')!.definition
+  await ctx.agentTeams.createTask(lead, { subject: 'xss sink', description: 'd', blockedBy: [], writeScopes: [] })
+  // The lane claims while the Lead waits: the service wake says only "task".
+  ctx.agentTeams.waitForChange = async () => {
+    const task = tasks.find(candidate => candidate.id === 'task-1')!
+    task.status = 'in_progress'
+    task.ownerName = 'scout'
+    return { timedOut: false, changed: 'task', target: 'task-1', detail: 'xss sink' }
+  }
+  const claimWake = await wait.execute({ timeout_ms: 10_000 }, exec(lead))
+  assert.equal(claimWake.claim_only, true)
+  assert.match(claimWake.message, /CLAIM-ONLY/)
+  assert.match(claimWake.message, /re-list only if you are watching assignments/)
+  // A completion wakes WITHOUT the marker.
+  ctx.agentTeams.waitForChange = async () => {
+    const task = tasks.find(candidate => candidate.id === 'task-1')!
+    task.status = 'completed'
+    return { timedOut: false, changed: 'task', target: 'task-1', detail: 'xss sink' }
+  }
+  const doneWake = await wait.execute({ timeout_ms: 10_000 }, exec(lead))
+  assert.equal(doneWake.claim_only, undefined)
+  assert.equal(doneWake.changed, 'task')
 })

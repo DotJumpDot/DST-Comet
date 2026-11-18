@@ -4,6 +4,24 @@ House rule: one line per file, why it changed. New upstream pins re-apply
 this list. Commits and pushes follow the AGENTS.md commit style
 (`Type: summary` + `- [x]` checklist + `Verified:` paragraph).
 
+Run-50 engine round (2026-11-18, Advice/advice-2026-11-18-run50.md §4/§8/
+§9). (1) `spawn_teammate` accepts `task_id` (the board task's subject +
+description are PREPENDED to the prompt verbatim — kills the hand-typed
+copy that drifted from the board; run-50 measured spawn-block ≤34 vs
+board ≤30) and `max_requests` (the canonical budget line — cap INCLUDES
+cleanup, reserve ~15%, overrun-for-cleanup is correct behavior — is
+appended; the result's `note` reminds the Lead to enforce with
+constellation `budget_set`, since the engine cannot call MCP itself).
+(2) `wait_agent` wakes on task changes carry `claim_only:true` when the
+board diff across the wait shows ONLY bare claims (pending → in_progress
++ owner, nothing else) — the no-information wake that cost ~10 Lead round
+trips per run; classifier is the exported pure `onlyClaimTransitions`.
+Constellation side of the same advice file shipped separately
+(Constellation-MCP b6c3545: profile-held launch refusal, holder-named
+lock errors, unknown-tool did-you-mean, scope_reap, session-lifetime
+docs).
+
+
 Markdown-table round (2026-11-18, user ask + screenshot: tables "look
 kinda weird" since the side panels). Vision read of the screenshot found
 the table was NOT misaligned — the real defects: (1) prebuilt grid lines
